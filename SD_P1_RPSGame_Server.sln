@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29806.167
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SD_P1_RPSGame_Server", "SD_P1_RPSGame_Server\SD_P1_RPSGame_Server.vcxproj", "{F291D176-83CD-4564-9EC6-6E63058328AF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F291D176-83CD-4564-9EC6-6E63058328AF}.Debug|x64.ActiveCfg = Debug|x64
+		{F291D176-83CD-4564-9EC6-6E63058328AF}.Debug|x64.Build.0 = Debug|x64
+		{F291D176-83CD-4564-9EC6-6E63058328AF}.Debug|x86.ActiveCfg = Debug|Win32
+		{F291D176-83CD-4564-9EC6-6E63058328AF}.Debug|x86.Build.0 = Debug|Win32
+		{F291D176-83CD-4564-9EC6-6E63058328AF}.Release|x64.ActiveCfg = Release|x64
+		{F291D176-83CD-4564-9EC6-6E63058328AF}.Release|x64.Build.0 = Release|x64
+		{F291D176-83CD-4564-9EC6-6E63058328AF}.Release|x86.ActiveCfg = Release|Win32
+		{F291D176-83CD-4564-9EC6-6E63058328AF}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {BD4BC318-053F-4F35-9058-AF1887AC2001}
+	EndGlobalSection
+EndGlobal
