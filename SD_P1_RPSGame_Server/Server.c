@@ -26,9 +26,6 @@ struct addrinfo* result = NULL, * ptr = NULL, hints;
 
 int playOrRestart(char* recvbuf) {
 
-    printf(recvbuf);
-
-
     char* context = NULL;
 
     char recvbufcopy[DEFAULT_BUFLEN] = "";
@@ -70,119 +67,44 @@ int playOrRestart(char* recvbuf) {
 }
 
 
-//Sistemas_Distribuidos_Rock_Paper_Scissors_Winsock2_Server
+DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
 
-//Primeiro projeto da unidade curricular Sistemas Distribuidos. Desenvolvimento do jogo Rock Paper Scissors através da biblioteca winsock e de threads. 
+    // set our socket to the socket passed in as a parameter   
+    SOCKET current_client = (SOCKET)params;
+    
 
-//Desenvolvimento do servidor. Tratamento de comandos e de possíveis respostas. Sem Threads.
-
-
-
-
-int __cdecl main(int argc, char** argv) {
-    int receivedMsgValue = -3;
-    int randomnumber = 0;
-
-
-
-//INITIALIZING Winsock
-    WSADATA wsaData;//Create a WSADATA object called wsaData.
-    int iResult;
-    // Initialize Winsock: Call WSAStartup and return its value as an integer and check for errors.
-    iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (iResult != 0) {
-        printf("WSAStartup failed: %d\n", iResult);
-        return 1;
-    }
-
-
-//CREATING a Socket for the Server
-    ZeroMemory(&hints, sizeof(hints));
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-    hints.ai_flags = AI_PASSIVE;
-    // Resolve the local address and port to be used by the server: The getaddrinfo function is used to determine the values in the sockaddr structure.
-    iResult = getaddrinfo(NULL, DEFAULT_PORT, &hints, &result);
-    if (iResult != 0) {
-        printf("getaddrinfo failed: %d\n", iResult);
-        WSACleanup();
-        return 1;
-    }
-
-    //Create a SOCKET object called ListenSocket for the server to listen for client connections.
-    SOCKET ListenSocket = INVALID_SOCKET;
-    // Create a SOCKET for the server to listen for client connections
-    ListenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-    //Check for errors to ensure that the socket is a valid socket.
-    if (ListenSocket == INVALID_SOCKET) {
-        printf("Error at socket(): %ld\n", WSAGetLastError());
-        freeaddrinfo(result);
-        WSACleanup();
-        return 1;
-    }
-
-
-    // BINDING a Socket to an IP address and a port on the system
-        // Setup the TCP listening socket
-    iResult = bind(ListenSocket, result->ai_addr, (int)result->ai_addrlen);
-    if (iResult == SOCKET_ERROR) {
-        printf("bind failed with error: %d\n", WSAGetLastError());
-        freeaddrinfo(result);
-        closesocket(ListenSocket);
-        WSACleanup();
-        return 1;
-    }
-    freeaddrinfo(result);// Free the memory allocated by the getaddrinfo function for this address information.
-
-
-
-// LISTENING on a Socket for incoming connection requests
-    iResult = listen(ListenSocket, SOMAXCONN);
-    if (iResult == SOCKET_ERROR) { // SOMAXCONN: backlog that specifies the maximum length of the queue of pending connections to accept
-        printf("Listen failed with error: %ld\n", WSAGetLastError());
-        closesocket(ListenSocket);
-        WSACleanup();
-        return 1;
-    }
-
-
-    // ACCEPTING a Connection
-       //Create a temporary SOCKET object called ClientSocket for accepting connections from clients.
-    SOCKET ClientSocket;
-    ClientSocket = INVALID_SOCKET;
-
-    // Accept a client socket
-    ClientSocket = accept(ListenSocket, NULL, NULL);
-    if (ClientSocket == INVALID_SOCKET) {
-        printf("accept failed: %d\n", WSAGetLastError());
-        closesocket(ListenSocket);
-        WSACleanup();
-        return 1;
-    }
-
-    // No longer need server socket
-    //closesocket(ListenSocket);
-
-// RECEIVING AND SENDING Data on the Server
+    // RECEIVING AND SENDING Data on the Server
     char recvbuf[DEFAULT_BUFLEN];
     char sendbuf[DEFAULT_BUFLEN];
     int iSendResult;
+    int iRecvResult;
 
+    int receivedMsgValue = INT_MIN;
+    int randomnumber = 0;
+
+
+    strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK: Connection established\n");
+    iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
+    if (iSendResult == SOCKET_ERROR) {
+        printf("send failed: %d\n", WSAGetLastError());
+        closesocket(current_client);
+        WSACleanup();
+        return 1;
+    }
 
     // Receive until the peer shuts down the connection
     do {
-        
+
         ZeroMemory(recvbuf, DEFAULT_BUFLEN);
         ZeroMemory(sendbuf, DEFAULT_BUFLEN);
 
-        iResult = recv(ClientSocket, recvbuf, DEFAULT_BUFLEN, 0);
-        if (iResult > 0){
+        iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);
+        if (iRecvResult > 0) {
 
             srand(time(0));
             randomnumber = rand() % 3;
 
-            int receivedMsgValue = playOrRestart(recvbuf);
+            receivedMsgValue = playOrRestart(recvbuf);
             //De acordo com a mensagem que o servidor receve, trata-a 
             switch (receivedMsgValue)
             {
@@ -261,45 +183,149 @@ int __cdecl main(int argc, char** argv) {
             }
 
             // Echo the buffer back to the sender
-            iSendResult = send(ClientSocket, sendbuf, strlen(sendbuf), 0);
+            iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
             if (iSendResult == SOCKET_ERROR) {
                 printf("send failed: %d\n", WSAGetLastError());
-                closesocket(ClientSocket);
+                closesocket(current_client);
                 WSACleanup();
                 return 1;
             }
 
-            if (receivedMsgValue==4)//END
+            if (receivedMsgValue == 4)//END
             {
                 printf("Connection closing...\n");
-                break;                
+                break;
                 // Close socket
                 //closesocket(ClientSocket);
                 //WSACleanup();
             }
 
-            iResult = recv(ClientSocket, recvbuf, DEFAULT_BUFLEN, 0);// Clear garbage
+            iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);// Clear garbage
 
 
         }
 
-    } while (iResult > 0);
+    } while (iRecvResult > 0);
+
 
     // Disconnecting the Server
-        // shutdown the send half of the connection since no more data will be sent
-    iResult = shutdown(ClientSocket, SD_SEND);
-    if (iResult == SOCKET_ERROR) {
+    // shutdown the send half of the connection since no more data will be sent
+    iRecvResult = shutdown(current_client, SD_SEND);
+    if (iRecvResult == SOCKET_ERROR) {
         printf("shutdown failed: %d\n", WSAGetLastError());
-        closesocket(ClientSocket);
+        closesocket(current_client);
         WSACleanup();
+        ExitThread(0);
         return 1;
     }
 
     // cleanup
-    closesocket(ClientSocket);
+    closesocket(current_client);
     WSACleanup();
 
     return 0;
+
+
+}
+
+
+int __cdecl main(int argc, char** argv) {
+
+
+//INITIALIZING Winsock
+    WSADATA wsaData;//Create a WSADATA object called wsaData.
+    int iResult;
+    // Initialize Winsock: Call WSAStartup and return its value as an integer and check for errors.
+    iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (iResult != 0) {
+        printf("WSAStartup failed: %d\n", iResult);
+        return 1;
+    }
+
+
+//CREATING a Socket for the Server
+    ZeroMemory(&hints, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    hints.ai_flags = AI_PASSIVE;
+    // Resolve the local address and port to be used by the server: The getaddrinfo function is used to determine the values in the sockaddr structure.
+    iResult = getaddrinfo(NULL, DEFAULT_PORT, &hints, &result);
+    if (iResult != 0) {
+        printf("getaddrinfo failed: %d\n", iResult);
+        WSACleanup();
+        return 1;
+    }
+
+    //Create a SOCKET object called ListenSocket for the server to listen for client connections.
+    SOCKET ListenSocket = INVALID_SOCKET;
+    // Create a SOCKET for the server to listen for client connections
+    ListenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+    //Check for errors to ensure that the socket is a valid socket.
+    if (ListenSocket == INVALID_SOCKET) {
+        printf("Error at socket(): %ld\n", WSAGetLastError());
+        freeaddrinfo(result);
+        WSACleanup();
+        return 1;
+    }
+
+
+    // BINDING a Socket to an IP address and a port on the system
+        // Setup the TCP listening socket
+    iResult = bind(ListenSocket, result->ai_addr, (int)result->ai_addrlen);
+    if (iResult == SOCKET_ERROR) {
+        printf("bind failed with error: %d\n", WSAGetLastError());
+        freeaddrinfo(result);
+        closesocket(ListenSocket);
+        WSACleanup();
+        return 1;
+    }
+    freeaddrinfo(result);// Free the memory allocated by the getaddrinfo function for this address information.
+
+
+
+// LISTENING on a Socket for incoming connection requests
+    iResult = listen(ListenSocket, SOMAXCONN);
+    if (iResult == SOCKET_ERROR) { // SOMAXCONN: backlog that specifies the maximum length of the queue of pending connections to accept
+        printf("Listen failed with error: %ld\n", WSAGetLastError());
+        closesocket(ListenSocket);
+        WSACleanup();
+        return 1;
+    }
+
+
+    // ACCEPTING a Connection
+       //Create a temporary SOCKET object called ClientSocket for accepting connections from clients.
+    SOCKET ClientSocket;
+    DWORD thread;
+
+    int tempInteger = INT_MIN;
+
+    while (1)
+    {
+        ClientSocket = INVALID_SOCKET;
+
+        // Accept a client socket
+        ClientSocket = accept(ListenSocket, NULL, NULL);
+        if (ClientSocket == INVALID_SOCKET) {
+            printf("accept failed: %d\n", WSAGetLastError());
+            closesocket(ListenSocket);
+            WSACleanup();
+            return 1;
+        }
+
+        printf("100 OK: Client connected!\n");
+
+        // create our recv_cmds thread and parse client socket as a parameter
+        tempInteger = CreateThread(NULL, 0, client_thread, ClientSocket, 0, &thread);
+        printf("Client thread created!\n");
+
+        printf("Thread created: Thred id -> %d\n", tempInteger);
+
+
+    }
+
+
 
 }
 
