@@ -18,6 +18,7 @@ Para testar pode ser usado o putty com os seguintes dados:
 - Port: DEFAULT_PORT (definida no código);
 - Connection type: Raw;
 - Close window on exit: Never.
+
 Antes de escrever algo no terminal do putty deve-se esperar alguns segundos até aparecer uma mensagem de conecção establecida.
 Antes de estabelecer a ligação do putty deve pôr-se o programa a executar.
 
