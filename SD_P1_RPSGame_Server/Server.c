@@ -26,6 +26,10 @@ struct addrinfo* result = NULL, * ptr = NULL, hints;
 
 int playOrRestart(char* recvbuf) {
 
+    printf(recvbuf);
+    printf("\n");
+
+
     char* context = NULL;
 
     char recvbufcopy[DEFAULT_BUFLEN] = "";
@@ -71,7 +75,6 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
 
     // set our socket to the socket passed in as a parameter   
     SOCKET current_client = (SOCKET)params;
-    
 
     // RECEIVING AND SENDING Data on the Server
     char recvbuf[DEFAULT_BUFLEN];
@@ -81,7 +84,6 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
 
     int receivedMsgValue = INT_MIN;
     int randomnumber = 0;
-
 
     strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK: Connection established\n");
     iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
@@ -194,10 +196,8 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
             if (receivedMsgValue == 4)//END
             {
                 printf("Connection closing...\n");
-                break;
                 // Close socket
-                //closesocket(ClientSocket);
-                //WSACleanup();
+                break;
             }
 
             iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);// Clear garbage
@@ -214,14 +214,15 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
     if (iRecvResult == SOCKET_ERROR) {
         printf("shutdown failed: %d\n", WSAGetLastError());
         closesocket(current_client);
-        WSACleanup();
-        ExitThread(0);
+        //WSACleanup();
+
         return 1;
     }
 
     // cleanup
     closesocket(current_client);
-    WSACleanup();
+    //WSACleanup();
+    ExitThread(0);
 
     return 0;
 
@@ -318,9 +319,7 @@ int __cdecl main(int argc, char** argv) {
 
         // create our recv_cmds thread and parse client socket as a parameter
         tempInteger = CreateThread(NULL, 0, client_thread, ClientSocket, 0, &thread);
-        printf("Client thread created!\n");
-
-        printf("Thread created: Thred id -> %d\n", tempInteger);
+        printf("Thread created: Thread id -> %d\n", tempInteger);
 
 
     }
