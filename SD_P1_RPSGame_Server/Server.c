@@ -123,16 +123,16 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
 
                 if (randomnumber == ROCK_VALUE)// Jogada do cliente
                 {
-                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY ROCK < CR>\n300 RESULT Draw!\n");
+                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY ROCK <CR>\n300 RESULT Draw!\n");
 
                 }
                 else if (randomnumber == PAPER_VALUE)
                 {
-                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY PAPER < CR>\n300 RESULT Server Wins!\n");
+                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY PAPER <CR>\n300 RESULT Server Wins!\n");
                 }
                 else if (randomnumber == SCISSORS_VALUE)
                 {
-                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY SCISSORS < CR>\n300 RESULT Client Wins!\n");
+                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY SCISSORS <CR>\n300 RESULT Client Wins!\n");
                 }
 
                 break;
@@ -141,16 +141,16 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
 
                 if (randomnumber == ROCK_VALUE)// Jogada do cliente
                 {
-                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY PAPER <CR> SERVERPLAY ROCK < CR>\n300 Client Wins!");
+                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY PAPER <CR> SERVERPLAY ROCK <CR>\n300 Client Wins!\n");
 
                 }
                 else if (randomnumber == PAPER_VALUE)
                 {
-                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY PAPER <CR> SERVERPLAY PAPER < CR>\n300 RESULT Draw!\n");
+                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY PAPER <CR> SERVERPLAY PAPER <CR>\n300 RESULT Draw!\n");
                 }
                 else if (randomnumber == SCISSORS_VALUE)
                 {
-                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY PAPER <CR> SERVERPLAY SCISSORS < CR>\n300 RESULT Server Wins!\n");
+                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY PAPER <CR> SERVERPLAY SCISSORS <CR>\n300 RESULT Server Wins!\n");
                 }
 
                 break;
@@ -159,16 +159,16 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
 
                 if (randomnumber == ROCK_VALUE)// Jogada do cliente
                 {
-                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY SCISSORS <CR> SERVERPLAY ROCK < CR>\n300 RESULT Server Wins!\n");
+                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY SCISSORS <CR> SERVERPLAY ROCK <CR>\n300 RESULT Server Wins!\n");
 
                 }
                 else if (randomnumber == PAPER_VALUE)
                 {
-                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY SCISSORS <CR> SERVERPLAY PAPER < CR>\n300 RESULT Client Wins!\n");
+                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY SCISSORS <CR> SERVERPLAY PAPER <CR>\n300 RESULT Client Wins!\n");
                 }
                 else if (randomnumber == SCISSORS_VALUE)
                 {
-                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY SCISSORS <CR> SERVERPLAY SCISSORS < CR>\n300 RESULT Draw!\n");
+                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY SCISSORS <CR> SERVERPLAY SCISSORS <CR>\n300 RESULT Draw!\n");
                 }
 
                 break;
@@ -200,7 +200,7 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
                 break;
             }
 
-            iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);// Clear garbage
+            //iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);// Clear garbage
 
 
         }
