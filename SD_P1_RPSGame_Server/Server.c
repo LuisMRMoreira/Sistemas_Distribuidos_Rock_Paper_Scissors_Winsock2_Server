@@ -2,6 +2,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 
+#include <ctype.h>
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -21,6 +22,7 @@
 #define ROCK_VALUE 0
 #define PAPER_VALUE 1
 #define SCISSORS_VALUE 2
+#define HELP 99
 
 struct addrinfo* result = NULL, * ptr = NULL, hints;
 
@@ -38,10 +40,24 @@ int playOrRestart(char* recvbuf) {
     char* firstword = strtok_s(recvbufcopy, " ", &context);
     char* arguments = strtok_s(NULL, " ", &context);
 
+    // Transforms all characters in 'firstword' to Upper Case to allow commands to be case insensitive
+    for (int i = 0; i < strlen(firstword); i++)
+    { 
+        firstword[i] = toupper(firstword[i]);
+    }
+
+    // Transforms all characters in 'arguments' to Upper Case to allow commands to be case insensitive
+    if (arguments != NULL)
+    {
+        for (int i = 0; i < strlen(arguments); i++)
+        {
+            arguments[i] = toupper(arguments[i]);
+        }
+    }
+    
+
     if (strcmp(firstword, "PLAY") == 0)
     {
-
-
         if (arguments == NULL)
             return -1;// TODO: Enviar mensagem de erro a informar que comando para jogar não tem argumentos
         else if (strcmp(arguments, "ROCK") == 0)
@@ -52,8 +68,6 @@ int playOrRestart(char* recvbuf) {
             return SCISSORS_VALUE;
         else
             return -2;// TODO: Enviar mensagem de erro a informar que o argumento é inválido
-
-
     }
     else if (strcmp(firstword, "RESTART") == 0)//PLAY AGAIN
     {
@@ -62,6 +76,10 @@ int playOrRestart(char* recvbuf) {
     else if (strcmp(firstword, "END") == 0) //END COMUNICATION
     {
         return 4;
+    }
+    else if (strcmp(firstword, "HELP") == 0)
+    {
+        return 99;
     }
     else {
         return -3; // INVALID COMMAND
@@ -85,7 +103,7 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
     int receivedMsgValue = INT_MIN;
     int randomnumber = 0;
 
-    strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK: Connection established\n");
+    strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK: Connection established\nUse the HELP command for the list of commands available\n");
     iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
     if (iSendResult == SOCKET_ERROR) {
         printf("send failed: %d\n", WSAGetLastError());
@@ -118,6 +136,13 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
                 break;
             case -1:
                 strcpy_s(sendbuf, DEFAULT_BUFLEN, "No Arguments. Valid commands <PLAY <ROCK;PAPER;SCISSORS>;RESTART> Try again.\n");
+                break;
+            case HELP:
+                strcpy_s(sendbuf, DEFAULT_BUFLEN, "PLAY ROCK - Play a game and choose rock\n");
+                strcat_s(sendbuf, DEFAULT_BUFLEN, "PLAY SCISSORS - Play a game and choose scissors\n");
+                strcat_s(sendbuf, DEFAULT_BUFLEN, "PLAY PAPER - Play a game and choose paper\n");
+                strcat_s(sendbuf, DEFAULT_BUFLEN, "RESTART - Restart the connection\n");
+                strcat_s(sendbuf, DEFAULT_BUFLEN, "END - Close the connection\n");
                 break;
             case ROCK_VALUE:
 
