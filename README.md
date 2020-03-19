@@ -7,6 +7,7 @@ Comandos do cliente (case insensitive):
 - PLAY SCISSORS
 - RESTART
 - END
+- STATS
 - HELP
 
 Projeto baseado no tutorial da Microsoft para Winsock: https://docs.microsoft.com/en-us/windows/win32/winsock/getting-started-with-winsock
