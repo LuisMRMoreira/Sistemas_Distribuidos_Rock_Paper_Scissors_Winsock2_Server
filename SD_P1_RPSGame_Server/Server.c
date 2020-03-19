@@ -6,7 +6,6 @@
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -32,6 +31,7 @@ struct addrinfo* result = NULL, * ptr = NULL, hints;
 
 int playOrRestart(char* recvbuf) {
 
+    printf("%d: Command Received -> ", GetCurrentThreadId());
     printf(recvbuf);
     printf("\n");
 
@@ -44,23 +44,6 @@ int playOrRestart(char* recvbuf) {
     char* firstword = strtok_s(recvbufcopy, " ", &context);
     char* arguments = strtok_s(NULL, " ", &context);
 
-    // Transforms all characters in 'firstword' to Upper Case to allow commands to be case insensitive
-    if (firstword != NULL)
-    {
-        for (int i = 0; i < strlen(firstword); i++)
-        { 
-            firstword[i] = toupper(firstword[i]);
-        }
-    }
-
-    // Transforms all characters in 'arguments' to Upper Case to allow commands to be case insensitive
-    if (arguments != NULL)
-    {
-        for (int i = 0; i < strlen(arguments); i++)
-        {
-            arguments[i] = toupper(arguments[i]);
-        }
-    }
     
     if (strcmp(firstword, "PLAY") == 0)
     {
@@ -116,10 +99,11 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
     char gamesPlayedString[19], gamesWonString[16], gamesDrawString[17], gamesLostString[17];
     char auxString[5];
 
+    printf("%d: Connection established\n", GetCurrentThreadId());
     strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK: Connection established\nUse the HELP command for the list of commands available\n");
     iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
     if (iSendResult == SOCKET_ERROR) {
-        printf("send failed: %d\n", WSAGetLastError());
+        printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
         closesocket(current_client);
         WSACleanup();
         return 1;
@@ -272,16 +256,19 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
 
             // Echo the buffer back to the sender
             iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
+
             if (iSendResult == SOCKET_ERROR) {
-                printf("send failed: %d\n", WSAGetLastError());
+                printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
                 closesocket(current_client);
                 WSACleanup();
                 return 1;
             }
 
-            if (receivedMsgValue == 4)//END
+            if (receivedMsgValue == END)
             {
-                printf("Connection closing...\n");
+                strcpy_s(sendbuf, DEFAULT_BUFLEN, "0");
+                send(current_client, sendbuf, strlen(sendbuf), 0);
+                printf("%d: Connection closing...\n", GetCurrentThreadId());
                 // Close socket
                 break;
             }
@@ -298,7 +285,7 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
     // shutdown the send half of the connection since no more data will be sent
     iRecvResult = shutdown(current_client, SD_SEND);
     if (iRecvResult == SOCKET_ERROR) {
-        printf("shutdown failed: %d\n", WSAGetLastError());
+        printf("%d: Shutdown failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
         closesocket(current_client);
         //WSACleanup();
 
@@ -387,10 +374,13 @@ int __cdecl main(int argc, char** argv) {
 
     int tempInteger = INT_MIN;
 
+    printf("Server is up and running.\n");
+    printf("Waiting for new connections...\n");
+
     while (1)
     {
         ClientSocket = INVALID_SOCKET;
-
+   
         // Accept a client socket
         ClientSocket = accept(ListenSocket, NULL, NULL);
         if (ClientSocket == INVALID_SOCKET) {
