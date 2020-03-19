@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -22,6 +23,9 @@
 #define ROCK_VALUE 0
 #define PAPER_VALUE 1
 #define SCISSORS_VALUE 2
+#define RESTART 3
+#define END 4
+#define STATS 98
 #define HELP 99
 
 struct addrinfo* result = NULL, * ptr = NULL, hints;
@@ -58,7 +62,6 @@ int playOrRestart(char* recvbuf) {
         }
     }
     
-
     if (strcmp(firstword, "PLAY") == 0)
     {
         if (arguments == NULL)
@@ -74,15 +77,19 @@ int playOrRestart(char* recvbuf) {
     }
     else if (strcmp(firstword, "RESTART") == 0)//PLAY AGAIN
     {
-        return 3;
+        return RESTART;
     }
     else if (strcmp(firstword, "END") == 0) //END COMUNICATION
     {
-        return 4;
+        return END;
+    }
+    else if (strcmp(firstword, "STATS") == 0)
+    {
+        return STATS;
     }
     else if (strcmp(firstword, "HELP") == 0)
     {
-        return 99;
+        return HELP;
     }
     else {
         return -3; // INVALID COMMAND
@@ -105,6 +112,9 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
 
     int receivedMsgValue = INT_MIN;
     int randomnumber = 0;
+    int gamesPlayed = 0, gamesWon = 0, gamesDraw = 0, gamesLost = 0;
+    char gamesPlayedString[19], gamesWonString[16], gamesDrawString[17], gamesLostString[17];
+    char auxString[5];
 
     strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK: Connection established\nUse the HELP command for the list of commands available\n");
     iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
@@ -117,7 +127,38 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
 
     // Receive until the peer shuts down the connection
     do {
+        // To prevent overflows with the stats strings, counters are reset once the user has played 1000 games in a
+        // single session
+        if (gamesPlayed > 999)
+        {
+            gamesPlayed = 0;
+            gamesWon = 0;
+            gamesDraw = 0;
+            gamesLost = 0;
+        }
 
+        // Convert stats values to string and prepares them to be sent, in the case the client wants to see his session 
+        // stats
+        sprintf(auxString, "%d", gamesPlayed);
+        strcat(auxString, "\n");
+        strcpy(gamesPlayedString, "Games played: ");
+        strcat(gamesPlayedString, auxString);
+
+        sprintf(auxString, "%d", gamesWon);
+        strcat(auxString, "\n");
+        strcpy(gamesWonString, "Games won: ");
+        strcat(gamesWonString, auxString);
+
+        sprintf(auxString, "%d", gamesDraw);
+        strcat(auxString, "\n");
+        strcpy(gamesDrawString, "Games draw: ");
+        strcat(gamesDrawString, auxString);
+
+        sprintf(auxString, "%d", gamesLost);
+        strcat(auxString, "\n");
+        strcpy(gamesLostString, "Games lost: ");
+        strcat(gamesLostString, auxString);
+        
         ZeroMemory(recvbuf, DEFAULT_BUFLEN);
         ZeroMemory(sendbuf, DEFAULT_BUFLEN);
 
@@ -144,67 +185,84 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
                 strcpy_s(sendbuf, DEFAULT_BUFLEN, "PLAY ROCK - Play a game and choose rock\n");
                 strcat_s(sendbuf, DEFAULT_BUFLEN, "PLAY SCISSORS - Play a game and choose scissors\n");
                 strcat_s(sendbuf, DEFAULT_BUFLEN, "PLAY PAPER - Play a game and choose paper\n");
+                strcat_s(sendbuf, DEFAULT_BUFLEN, "STATS - See your stats in the current session\n");
                 strcat_s(sendbuf, DEFAULT_BUFLEN, "RESTART - Restart the connection\n");
                 strcat_s(sendbuf, DEFAULT_BUFLEN, "END - Close the connection\n");
                 break;
+            case STATS:
+                strcpy_s(sendbuf, DEFAULT_BUFLEN, gamesPlayedString);
+                strcat_s(sendbuf, DEFAULT_BUFLEN, gamesWonString);
+                strcat_s(sendbuf, DEFAULT_BUFLEN, gamesLostString);
+                strcat_s(sendbuf, DEFAULT_BUFLEN, gamesDrawString);
+                break;
             case ROCK_VALUE:
-
+                gamesPlayed++;
                 if (randomnumber == ROCK_VALUE)// Jogada do cliente
                 {
                     strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY ROCK <CR>\n300 RESULT Draw!\n");
-
+                    gamesDraw++;
                 }
                 else if (randomnumber == PAPER_VALUE)
                 {
                     strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY PAPER <CR>\n300 RESULT Server Wins!\n");
+                    gamesLost++;
                 }
                 else if (randomnumber == SCISSORS_VALUE)
                 {
                     strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY SCISSORS <CR>\n300 RESULT Client Wins!\n");
+                    gamesWon++;
                 }
 
                 break;
 
             case PAPER_VALUE:
-
+                gamesPlayed++;
                 if (randomnumber == ROCK_VALUE)// Jogada do cliente
                 {
                     strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY PAPER <CR> SERVERPLAY ROCK <CR>\n300 Client Wins!\n");
-
+                    gamesWon++;
                 }
                 else if (randomnumber == PAPER_VALUE)
                 {
                     strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY PAPER <CR> SERVERPLAY PAPER <CR>\n300 RESULT Draw!\n");
+                    gamesDraw++;
                 }
                 else if (randomnumber == SCISSORS_VALUE)
                 {
                     strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY PAPER <CR> SERVERPLAY SCISSORS <CR>\n300 RESULT Server Wins!\n");
+                    gamesLost++;
                 }
 
                 break;
 
             case SCISSORS_VALUE:
-
+                gamesPlayed++;
                 if (randomnumber == ROCK_VALUE)// Jogada do cliente
                 {
                     strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY SCISSORS <CR> SERVERPLAY ROCK <CR>\n300 RESULT Server Wins!\n");
-
+                    gamesLost++;
                 }
                 else if (randomnumber == PAPER_VALUE)
                 {
                     strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY SCISSORS <CR> SERVERPLAY PAPER <CR>\n300 RESULT Client Wins!\n");
+                    gamesWon++;
                 }
                 else if (randomnumber == SCISSORS_VALUE)
                 {
                     strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY SCISSORS <CR> SERVERPLAY SCISSORS <CR>\n300 RESULT Draw!\n");
+                    gamesDraw++;
                 }
 
                 break;
 
-            case 3:// RESTART                
+            case RESTART:   
+                gamesPlayed = 0;
+                gamesWon = 0;
+                gamesLost = 0;
+                gamesDraw = 0;
                 strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK\n");
                 break;
-            case 4:// END
+            case END:
                 strcpy_s(sendbuf, DEFAULT_BUFLEN, "400 BYE\n");
                 break;
             default:
@@ -312,7 +370,6 @@ int __cdecl main(int argc, char** argv) {
     freeaddrinfo(result);// Free the memory allocated by the getaddrinfo function for this address information.
 
 
-
 // LISTENING on a Socket for incoming connection requests
     iResult = listen(ListenSocket, SOMAXCONN);
     if (iResult == SOCKET_ERROR) { // SOMAXCONN: backlog that specifies the maximum length of the queue of pending connections to accept
@@ -348,8 +405,6 @@ int __cdecl main(int argc, char** argv) {
         // create our recv_cmds thread and parse client socket as a parameter
         tempInteger = CreateThread(NULL, 0, client_thread, ClientSocket, 0, &thread);
         printf("Thread created: Thread id -> %d\n", tempInteger);
-
-
     }
 
 
