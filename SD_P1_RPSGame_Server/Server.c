@@ -44,6 +44,22 @@ int playOrRestart(char* recvbuf) {
     char* firstword = strtok_s(recvbufcopy, " ", &context);
     char* arguments = strtok_s(NULL, " ", &context);
 
+    // Transforms all characters in 'firstword' to Upper Case to allow commands to be case insensitive
+    if (firstword != NULL)
+    {
+        for (int i = 0; i < strlen(firstword); i++)
+        {
+            firstword[i] = toupper(firstword[i]);
+        }
+    }
+
+    if (arguments != NULL)
+    {
+        for (int i = 0; i < strlen(arguments); i++)
+        {
+            arguments[i] = toupper(arguments[i]);
+        }
+    }
     
     if (strcmp(firstword, "PLAY") == 0)
     {
