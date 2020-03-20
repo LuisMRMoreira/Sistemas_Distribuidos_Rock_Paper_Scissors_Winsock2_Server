@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -41,7 +42,9 @@ int playOrRestart(char* recvbuf) {
     char recvbufcopy[DEFAULT_BUFLEN] = "";
     strcpy(recvbufcopy, recvbuf);
 
-    char* firstword = strtok_s(recvbufcopy, " ", &context);
+    char* command = strtok_s(recvbufcopy, "\r", &context);
+
+    char* firstword = strtok_s(command, " ", &context);
     char* arguments = strtok_s(NULL, " ", &context);
 
     // Transforms all characters in 'firstword' to Upper Case to allow commands to be case insensitive
@@ -114,6 +117,7 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
     int gamesPlayed = 0, gamesWon = 0, gamesDraw = 0, gamesLost = 0;
     char gamesPlayedString[19], gamesWonString[16], gamesDrawString[17], gamesLostString[17];
     char auxString[5];
+    bool skipCommand = 0;
 
     printf("%d: Connection established\n", GetCurrentThreadId());
     strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK: Connection established\nUse the HELP command for the list of commands available\n");
@@ -162,8 +166,17 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
         ZeroMemory(recvbuf, DEFAULT_BUFLEN);
         ZeroMemory(sendbuf, DEFAULT_BUFLEN);
 
+        skipCommand = 0;
         iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);
-        if (iRecvResult > 0) {
+
+        // If the command received is a newline skip the command and do nothing
+        if ((strcmp(recvbuf, "\n") == 0) || (strcmp(recvbuf, "\r") == 0) || (strcmp(recvbuf, "\r\n") == 0))
+        {
+            skipCommand = 1 ;
+        }
+
+
+        if ((iRecvResult > 0) && (skipCommand == 0)) {
 
             srand(time(0));
             randomnumber = rand() % 3;
@@ -290,9 +303,7 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
                 break;
             }
 
-            iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);// Clear garbage
-
-
+             // iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);// Clear garbage           
         }
 
     } while (iRecvResult > 0);
