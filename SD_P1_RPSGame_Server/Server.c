@@ -169,6 +169,7 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
             randomnumber = rand() % 3;
 
             receivedMsgValue = playOrRestart(recvbuf);
+
             //De acordo com a mensagem que o servidor receve, trata-a 
             switch (receivedMsgValue)
             {
@@ -289,7 +290,7 @@ DWORD WINAPI client_thread(SOCKET params) { // TODO: Search DWORD WINAPI meaning
                 break;
             }
 
-            //iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);// Clear garbage
+            iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);// Clear garbage
 
 
         }
