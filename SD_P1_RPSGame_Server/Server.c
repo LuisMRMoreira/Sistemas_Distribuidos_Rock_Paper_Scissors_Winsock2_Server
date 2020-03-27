@@ -285,7 +285,7 @@ DWORD WINAPI client_thread(SOCKET params) {
                     WSACleanup();
                     return 1;
                 }
-            t ch}
+            }
 
             if (receivedMsgValue == END)
             {
