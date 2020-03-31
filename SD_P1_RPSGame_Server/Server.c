@@ -14,9 +14,10 @@
 #pragma comment(lib, "Ws2_32.lib")
 #pragma warning(disable : 4996)
 
-#define DEFAULT_PORT "25565"
-#define DEFAULT_BUFLEN 512
+#define DEFAULT_PORT "25565" // Número da porta que compõe o socket que establece conexão com o serevidor
+#define DEFAULT_BUFLEN 512 // Tamanho do buffer de comunicação
 
+// Códigos retornados pela função que interpreta as mensagens recebidas.
 #define INVALID_COMMAND -3
 #define INVALID_ARGUMENT -2
 #define NO_ARGUMENTS -1
@@ -28,42 +29,34 @@
 #define STATS 5
 #define HELP 6
 
+// Estrutura de dados utilizada para obter a informação do endereço e da porta que seram utilizados pelo servidor.
 struct addrinfo* result = NULL, * ptr = NULL, hints;
 
+// Função que recebe como parametro a string enviada pelo cliente, interpreta-a e retorna um valor que servirá posteriormente para se contruir a mensagem de resposta do servidor para o cliente.
+// Todos os possíveis valores que podem ser retornados desta função, estão indicados no bloco de "#define" acima.
 int playOrRestart(char* recvbuf) {
 
     printf("%d: Command Received -> ", GetCurrentThreadId());
     printf(recvbuf);
     printf("\n");
 
-
+    // Bloco de código responsável por fazer o "split" da mensagem recebida em possíveis comandos interpretáveis.
     char* context = NULL;
-
     char recvbufcopy[DEFAULT_BUFLEN] = "";
     strcpy(recvbufcopy, recvbuf);
-
     char* firstword = strtok_s(recvbufcopy, " ", &context);
     char* arguments = strtok_s(NULL, " ", &context);
 
-    // Transforms all characters in 'firstword' to Upper Case to allow commands to be case insensitive
+    // Transforma todos os caracteres do buffer que contem a mensagem recebida do servidor para "Upper Case" de forma a que os comandos sejam case insensitive.
     if (firstword != NULL)
-    {
         for (int i = 0; i < strlen(firstword); i++)
-        {
             firstword[i] = toupper(firstword[i]);
-        }
-    }
-
     if (arguments != NULL)
-    {
         for (int i = 0; i < strlen(arguments); i++)
-        {
             arguments[i] = toupper(arguments[i]);
-        }
-    }
 
+    // Interpretação da mensagem recebida de forma a retornar um valor indicado para o posterior processamento.
     if (strcmp(firstword, "PLAY") == 0)
-    {
         if (arguments == NULL)
             return NO_ARGUMENTS;
         else if (strcmp(arguments, "ROCK") == 0)
@@ -74,60 +67,59 @@ int playOrRestart(char* recvbuf) {
             return SCISSORS_VALUE;
         else
             return INVALID_ARGUMENT;
-    }
     else if (strcmp(firstword, "RESTART") == 0)
-    {
         return RESTART;
-    }
     else if (strcmp(firstword, "END") == 0)
-    {
         return END;
-    }
     else if (strcmp(firstword, "STATS") == 0)
-    {
         return STATS;
-    }
     else if (strcmp(firstword, "HELP") == 0)
-    {
         return HELP;
-    }
-    else {
+    else 
         return INVALID_COMMAND;
-    }
 }
 
-
+// Função que representa a parte do código que será possívelmente executada em multiplas threads.
+// Esta funcionalidade permite que multiplos clientes estejam conectados e a comunicar com o mesmo servidor simultaneamente através da criação de uma thread para cada novo cliente que se conecta ao servidor.
+// Esta função utilizada o resultado da função anterior (int playOrRestart(char* recvbuf)) de forma a criar/ escolher a mensagem para o cliente.
 DWORD WINAPI client_thread(SOCKET params) {
-    // set our socket to the socket passed in as a parameter   
+    
+    // Criar um socket com os valores do socket criado após se ter aceite a conexão entre o cliente e o servidor.
     SOCKET current_client = (SOCKET)params;
 
-    // RECEIVING AND SENDING Data on the Server
-    char recvbuf[DEFAULT_BUFLEN];
-    char sendbuf[DEFAULT_BUFLEN];
-    int iSendResult;
-    int iRecvResult;
+    // Variaveis que contêm informação das mensagens entre o servidor e o cliente.
+    char recvbuf[DEFAULT_BUFLEN]; // Buffer com a string recebida pelo servidor
+    char sendbuf[DEFAULT_BUFLEN]; // Buffer com a string que será enviada pelo servidor
+    int iSendResult; // Resultado da função send (envio de mensagem para o servidor).
+    int iRecvResult; // Resultado da função recv (recebe mensagens do cliente no servidor). Número de caracteres recebidos.
 
-    int receivedMsgValue = INT_MIN;
+    int receivedMsgValue = INT_MIN; // Variavel que irá guardar o resultado da interpretação da mensagem recebida através da função "playOrRestart(recvbuf);".
+    
+    // Variáveis utilizadas para a lógica do comando "STATS"
     int randomnumber = 0;
     int gamesPlayed = 0, gamesWon = 0, gamesDraw = 0, gamesLost = 0;
     char gamesPlayedString[19], gamesWonString[16], gamesDrawString[17], gamesLostString[17];
     char auxString[5];
-    bool skipCommand;
+    
+    bool skipCommand; // Variável que permite ignorar possíveis "lixos" que venham no buffer recebido.
 
     printf("%d: Connection established\n", GetCurrentThreadId());
-    strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK: Connection established\nUse the HELP command for the list of commands available\n");
-    iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
-    if (iSendResult == SOCKET_ERROR) {
+    
+    // Envio de uma mensagem informativa sobre o estado de conexão com o servidor, assim como a interpretação do resultado do envio de forma a evitar possíveis erros.
+    strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK: Connection established\nUse the HELP command for the list of commands available\n"); // Preenchimento do buffer de envio com a mensagem que se pretende enviar.
+    iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0); // Envio da mensagem contida no array de caracteres "sendbuf" para o cliente com o socket "current_client".
+    if (iSendResult == SOCKET_ERROR) { //Interpretação do resultado do envio da mensagem de forma a informar possíveis erros.
+        // Em caso de erro:
         printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
-        closesocket(current_client);
-        WSACleanup();
+        closesocket(current_client); // Fechar o socket.
+        WSACleanup(); // Limpeza de possiveis recursos alocados.
         return 1;
     }
 
-    // Receive until the peer shuts down the connection
+    // Recebe informação até que a conexão entre o servidor e o cliente seja fechada, ou seja, enqaundo o cliente enviar informação para o servidor (iRecvResult > 0).
     do {
-        // To prevent overflows with the stats strings, counters are reset 
-        // once the user has played 1000 games in a single session
+
+        // De forma a prevenir possíveis "overflows" das strings que representam as estatisticas, os contadores são reinicializados a cada 1000 jogos em cada sessão.
         if (gamesPlayed > 999)
         {
             gamesPlayed = 0;
@@ -136,8 +128,7 @@ DWORD WINAPI client_thread(SOCKET params) {
             gamesLost = 0;
         }
 
-        // Convert stats values to string and prepares them to be sent, in 
-        // case the client wants to see his session stats
+        // Conversão dos valores para strins e prepará-las para serem enviadas, no caso do cliente querer ver as suas estatísticas.
         sprintf(auxString, "%d", gamesPlayed);
         strcat(auxString, "\n");
         strcpy(gamesPlayedString, "Games played: ");
@@ -158,30 +149,35 @@ DWORD WINAPI client_thread(SOCKET params) {
         strcpy(gamesLostString, "Games lost: ");
         strcat(gamesLostString, auxString);
         
+        // Faz o reset do conteudo das strings para remover possíveis caracteres indesejados.
         ZeroMemory(recvbuf, DEFAULT_BUFLEN);
         ZeroMemory(sendbuf, DEFAULT_BUFLEN);
 
         skipCommand = 0;
+        
+        // Recebe uma mensagem do cliente com o soccket "current_client" e guarda-a na string "recvbuf".
         iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);
 
-        // If the command received is a newline skip the command and do nothing
+        // Permite ignorar possíveis caracteres que representem "lixo" para o nosso processamento ao passar à frente o processamento do mesmo.
+        // Normalmente estes caracteres são os "\n", "\r" e "\r\n".
         if ((strcmp(recvbuf, "\n") == 0) || (strcmp(recvbuf, "\r") == 0) || (strcmp(recvbuf, "\r\n") == 0))
-        {
             skipCommand = 1;
-        }
 
-
-        if ((iRecvResult > 0) && (skipCommand == 0)) {
+        // No caso de se ter recebido mais que zero caracteres e da string recebida não representar caractres que devam ser ignorados:
+        if ((iRecvResult > 0) && (skipCommand == 0)) { 
             if (iRecvResult > 0) {
             
-                // Randomly choose what the server will play
+                // Escolha aleatória da jogada do servidor.
                 srand(time(0));
                 randomnumber = rand() % 3;
 
+                // Utilizar a função criada em cima para interpretar a mensagem recebida.
                 receivedMsgValue = playOrRestart(recvbuf);
 
-                // According to the message received, the server will do the
-                // corresponding operations
+
+
+
+                // De acordo com o valor obtido na função "playOrRestart(recvbuf);", será criada/ escolhida uma mensagem que posteriormente será enviada como mensagem de resposta pelo servidor, ao cliente.
                 switch (receivedMsgValue)
                 {
                 case INVALID_COMMAND:
@@ -208,8 +204,8 @@ DWORD WINAPI client_thread(SOCKET params) {
                     strcat_s(sendbuf, DEFAULT_BUFLEN, gamesDrawString);
                     break;
                 case ROCK_VALUE:
-                    gamesPlayed++;
-                    if (randomnumber == ROCK_VALUE) 
+                    gamesPlayed++; // No caso da mensagem recebida ser de uma jogada, o número de jogos é incrementado.
+                    if (randomnumber == ROCK_VALUE) // De acordo com o resultado da jogada, os contadores de resultados é interpretado.
                     {
                         strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY ROCK <CR>\n300 RESULT Draw!\n");
                         gamesDraw++;
@@ -261,7 +257,7 @@ DWORD WINAPI client_thread(SOCKET params) {
                         gamesDraw++;
                     }
                     break;
-                case RESTART:  
+                case RESTART:  // Comando de reinicialização dos contadores das estatisticas.
                     gamesPlayed = 0;
                     gamesWon = 0;
                     gamesLost = 0;
@@ -276,9 +272,8 @@ DWORD WINAPI client_thread(SOCKET params) {
                     break;
                 }
 
-                // Send the response to the client
+                // Chegando a este ponto, o buffer "sendbuf" já contém a mensagem que se quer enviar para o cliente "current_client", portanto a mensagem é enviada.
                 iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
-
                 if (iSendResult == SOCKET_ERROR) {
                     printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
                     closesocket(current_client);
@@ -288,14 +283,14 @@ DWORD WINAPI client_thread(SOCKET params) {
             }
 
             if (receivedMsgValue == END)
-            {
+            { //No caso da mensagem recebida pelo servidor ser de termino de conexão, sai-se do ciclo e  faz-se os passos necessários para terminar a conexão.
                 printf("%d: Connection closing...\n", GetCurrentThreadId());
                 break;
             }
         }
     } while (iRecvResult > 0);
 
-    // Disconnecting from the client
+    // Desconectar o servidor do cliente
     iRecvResult = shutdown(current_client, SD_SEND);
     if (iRecvResult == SOCKET_ERROR) {
         printf("%d: Shutdown failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
@@ -303,8 +298,10 @@ DWORD WINAPI client_thread(SOCKET params) {
         return 1;
     }
 
-    // Close socket
+    // Fechar o socket
     closesocket(current_client);
+
+    // Fechar a thread e limpar o espaço de memória que esta a ocupar, uma vez que já não pode servir o se proposito.
     ExitThread(0);
 
     return 0;
@@ -313,23 +310,26 @@ DWORD WINAPI client_thread(SOCKET params) {
 
 int __cdecl main(int argc, char** argv) {
 
-    //INITIALIZING Winsock
     WSADATA wsaData;
     int iResult;
-    // Initialize Winsock: Call WSAStartup and check for errors.
+
+    // INICIALIZAR a biblioteca winsock utilizada para estabelecer comunicação entre um cliente e um servidor. Execução da função WSAStartup e determinação de possíveis erros.
     iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (iResult != 0) {
         printf("WSAStartup failed: %d\n", iResult);
         return 1;
     }
 
-    //CREATING a Socket for the Server
+    // CRIAÇÃO de um socket para o servidor.
     ZeroMemory(&hints, sizeof(hints));
+
+    // Configurações dos dados necessários para estabelecer comunicação
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
     hints.ai_flags = AI_PASSIVE;
-    // Resolve the local address and port to be used by the server: The getaddrinfo function is used to determine the values in the sockaddr structure.
+
+    // Obter o endereço e a porta (sockaddr) que o servidor irá usar. Esta informação será guardada na estrutura de dados criada "addrinfo".
     iResult = getaddrinfo(NULL, DEFAULT_PORT, &hints, &result);
     if (iResult != 0) {
         printf("getaddrinfo failed: %d\n", iResult);
@@ -337,11 +337,11 @@ int __cdecl main(int argc, char** argv) {
         return 1;
     }
 
-    //Create a SOCKET object called ListenSocket for the server to listen for client connections.
+    // Criação de um objeto do tipo SOCKET que será utilizado para "ouvir" a tentativa de criar novas ligações por parte de clientes.
     SOCKET ListenSocket = INVALID_SOCKET;
-    // Create a SOCKET for the server to listen for client connections
+    // Criação do SOCKET através da função "socket".
     ListenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-    //Check for errors to ensure that the socket is a valid socket.
+    // Verificação se o socket criado é válido.
     if (ListenSocket == INVALID_SOCKET) {
         printf("Error at socket(): %ld\n", WSAGetLastError());
         freeaddrinfo(result);
@@ -349,8 +349,7 @@ int __cdecl main(int argc, char** argv) {
         return 1;
     }
 
-    // BINDING a Socket to an IP address and a port on the system
-    // Setup the TCP listening socket
+    // Fazer o BINDING de um socket para um endereço IP e uma porta no sistema.
     iResult = bind(ListenSocket, result->ai_addr, (int)result->ai_addrlen);
     if (iResult == SOCKET_ERROR) {
         printf("bind failed with error: %d\n", WSAGetLastError());
@@ -359,12 +358,13 @@ int __cdecl main(int argc, char** argv) {
         WSACleanup();
         return 1;
     }
-    freeaddrinfo(result); // Free the memory allocated by the getaddrinfo function for this address information.
 
+    // Libertar a memória alocada pela função getaddrinfo para a informação deste endereço.
+    freeaddrinfo(result); 
 
-    // LISTENING on a Socket for incoming connection requests
-    iResult = listen(ListenSocket, SOMAXCONN);
-    if (iResult == SOCKET_ERROR) { // SOMAXCONN: backlog that specifies the maximum length of the queue of pending connections to accept
+    // LISTENING: Estar atento a possíveis novos pedidos de conexão por parte de clientes.
+    iResult = listen(ListenSocket, SOMAXCONN); // SOMAXCONN: Valor que especifica o tamanho máximo da fila de conexões pendentes.
+    if (iResult == SOCKET_ERROR) { 
         printf("Listen failed with error: %ld\n", WSAGetLastError());
         closesocket(ListenSocket);
         WSACleanup();
@@ -373,11 +373,11 @@ int __cdecl main(int argc, char** argv) {
 
 
     // ACCEPTING a Connection
-    // Create a temporary SOCKET object called ClientSocket for accepting connections from clients.
+    // ACEITAR uma conexão: criar um socket temporário chamado "ClientSocket" que sevirá exclusivamente para guardar informação do socket de cada cliente que se tenta ligar ao servidor.
     SOCKET ClientSocket;
     DWORD thread;
 
-    int tempInteger = INT_MIN;
+    int tempInteger = INT_MIN; // Variavel utilizada para obter o valor da thread criada.
 
     printf("Server is up and running.\n");
     printf("Waiting for new connections...\n");
@@ -386,7 +386,7 @@ int __cdecl main(int argc, char** argv) {
     {
         ClientSocket = INVALID_SOCKET;
    
-        // Accept a client socket
+        // Aceitar a conexão de um cliente e estabelecer um socket de comunicação para o novo cliente na variável "ClientSocket"
         ClientSocket = accept(ListenSocket, NULL, NULL);
         if (ClientSocket == INVALID_SOCKET) {
             printf("accept failed: %d\n", WSAGetLastError());
@@ -397,7 +397,7 @@ int __cdecl main(int argc, char** argv) {
 
         printf("100 OK: Client connected!\n");
 
-        // create our recv_cmds thread and parse client socket as a parameter
+        // Cada vez que um cliente se tente ligar ao servidor, será criada uma nova thread. Cada thread irá executar o código correspondente à função "client_thread" a quem será passado como parametro o socket da nova conexão "ClientSocket".
         tempInteger = CreateThread(NULL, 0, client_thread, ClientSocket, 0, &thread);
         printf("Thread created: Thread id -> %d\n", tempInteger);
     }
