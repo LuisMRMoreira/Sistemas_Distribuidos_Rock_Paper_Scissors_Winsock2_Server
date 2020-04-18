@@ -28,13 +28,29 @@
 #define END 4
 #define STATS 5
 #define HELP 6
+// UPDATE: 
+#define AUTHENTICATION_CREATE_ACCOUNT 10 // Representa a intenção por parte do cliente de criar uma conta.
+#define AUTHENTICATION_AUTHENTICATE 11 // Representa a intenção por parte do cliente de se autenticar.
+#define AUTHENTICATION_BACK_FIELD 12 // Voltar atrás no preenchimento de um campo.
+#define GARBAGE 13
+#define ACCEPTED_ENTRY 14 // Valor durante a autenticação ou criação de conta que pode ser aceite uma vez que pode representar os valores dos campos.
+#define MAX_NUM_CREATE_ACCOUNT_FIELDS 4 // De forma a que seja mais dinâmico alterar o número de campos de preenchimento, estabelece-se aqui o número máximo.
+#define MAX_NUM_AUTHENTICATION_FIELDS 2
 
 // Estrutura de dados utilizada para obter a informação do endereço e da porta que seram utilizados pelo servidor.
 struct addrinfo* result = NULL, * ptr = NULL, hints;
 
+// UPDATE: Este enum foi criado de forma a que o interpretador passe receba a informação necessária para interpretar o buffer que veio do cliente. Quando um cliente "isAuthenticating" e "isCreatingAccount" não está autenticado, no entanto foi adicionado o "isNotAuthenticated" para o caso de não se saber gual a intenção do cliente quando não está autenticado.
+enum Authentication { isNotAuthenticated = -1, isAuthenticated = 1, isAuthenticating = 2, isCreatingAccount = 3 };
+
+// Campos necessários para criar um perfil.
+enum AccountFields { username = 1, password = 2, email = 3 };
+
+
 // Função que recebe como parametro a string enviada pelo cliente, interpreta-a e retorna um valor que servirá posteriormente para se contruir a mensagem de resposta do servidor para o cliente.
 // Todos os possíveis valores que podem ser retornados desta função, estão indicados no bloco de "#define" acima.
-int playOrRestart(char* recvbuf) {
+// UPDATE: Nesta nova versão foi adicionado aos parametros, um enum que informa o interpretador, do estado de autenticação. Esta função foi usada para permitir a funcionalidade do utilizador reverter o preenchimento de um ou vários campo durante a autenticação ou criação de conta.
+int interpreter(enum Authentication value, char* recvbuf) {
 
     printf("%d: Command Received -> ", GetCurrentThreadId());
     printf(recvbuf);
@@ -55,29 +71,291 @@ int playOrRestart(char* recvbuf) {
         for (int i = 0; i < strlen(arguments); i++)
             arguments[i] = toupper(arguments[i]);
 
-    // Interpretação da mensagem recebida de forma a retornar um valor indicado para o posterior processamento.
-    if (strcmp(firstword, "PLAY") == 0)
-        if (arguments == NULL)
-            return NO_ARGUMENTS;
-        else if (strcmp(arguments, "ROCK") == 0)
-            return ROCK_VALUE;
-        else if (strcmp(arguments, "PAPER") == 0)
-            return PAPER_VALUE;
-        else if (strcmp(arguments, "SCISSORS") == 0)
-            return SCISSORS_VALUE;
-        else
-            return INVALID_ARGUMENT;
-    else if (strcmp(firstword, "RESTART") == 0)
-        return RESTART;
-    else if (strcmp(firstword, "END") == 0)
-        return END;
-    else if (strcmp(firstword, "STATS") == 0)
-        return STATS;
-    else if (strcmp(firstword, "HELP") == 0)
-        return HELP;
-    else 
-        return INVALID_COMMAND;
+
+    // UPDATE: No caso do jogador ainda não estar autenticado.
+    // De acordo com o estado de autenticação da sessão, o processamento do buffer que veio do cliente vai ser dferente
+    if (value != isAuthenticated) {
+
+        if (value == isAuthenticating || value == isCreatingAccount) // No caso do jogador estar a autenticar-se ou a criar conta, interpreta o buffer recebido. No caso desse buffer ter o conteudo "BACK", significa que o utilizador pretende corrigir o campo anterior.
+            if (strcmp(firstword, "<-BACK") == 0)
+                return AUTHENTICATION_BACK_FIELD;
+            else return ACCEPTED_ENTRY; // No caso do cliente se estar a autenticar ou a criar uma conta, se o utilizador não enviou o comando para voltar para o campo anterior, então é porque temos que aceitar esse campo, esteja ele bem ou mal.
+
+        if (strcmp(firstword, "Y") == 0) // Já tem conta e por isso, pretende autenticar-se.
+            return AUTHENTICATION_AUTHENTICATE;
+        else if (strcmp(firstword, "N") == 0) // Ainda não tem conta e por isso vai criá-la.
+            return AUTHENTICATION_CREATE_ACCOUNT;
+        else return GARBAGE;
+    }
+    else {    
+        // Interpretação da mensagem recebida de forma a retornar um valor indicado para o posterior processamento. Esta mensagem só interpretada com as normas do jogo no caso do cliete estar autenticado
+        if (strcmp(firstword, "PLAY") == 0)
+            if (arguments == NULL)
+                return NO_ARGUMENTS;
+            else if (strcmp(arguments, "ROCK") == 0)
+                return ROCK_VALUE;
+            else if (strcmp(arguments, "PAPER") == 0)
+                return PAPER_VALUE;
+            else if (strcmp(arguments, "SCISSORS") == 0)
+                return SCISSORS_VALUE;
+            else
+                return INVALID_ARGUMENT;
+        else if (strcmp(firstword, "RESTART") == 0)
+            return RESTART;
+        else if (strcmp(firstword, "END") == 0)
+            return END;
+        else if (strcmp(firstword, "STATS") == 0)
+            return STATS;
+        else if (strcmp(firstword, "HELP") == 0)
+            return HELP;
+        else 
+            return INVALID_COMMAND;
+    }
 }
+
+
+// UPDATE: 
+bool startAuthentication(SOCKET current_client) {
+    char recvbuf[DEFAULT_BUFLEN]; // Buffer com a string recebida pelo servidor
+    ZeroMemory(recvbuf, DEFAULT_BUFLEN);
+    char sendbuf[DEFAULT_BUFLEN];
+    ZeroMemory(recvbuf, DEFAULT_BUFLEN);
+    int iSendResult;
+    int iRecvResult;
+
+    // Esta variável será utilizada para se saber em que tópico de recolha de informação para autenticação (Username, email, password) é que o utilizador está.
+    enum Authentication authentication = isNotAuthenticated;
+    int fields = -1;
+    char fieldsEntries[MAX_NUM_CREATE_ACCOUNT_FIELDS-1][DEFAULT_BUFLEN];
+    // Este array multidimensional é preenchido de forma inversa. No caso da autenticação, na linha com o index 1 é armazenado o valor do username e na 0, a password. No caso da criação da conta, no index 2 está o username, no 1 a email e no 0 a password. 
+        // Criação de conta:
+            // 0 -> Password; (O valor do campo de confrmação de password nunca é armazenado, apenas é comparado no elemento 0 deste campo, assim que for recebido no buffer recvbuf)
+            // 1 -> Email;
+            // 2 -> Username.
+        // Autenticação:
+            // 0 -> Password;
+            // 1 -> Username.
+    // Neste último caso, apenas dois elementos do array são preenchidos, permanecendo o último inalterado.
+
+
+
+    strcpy_s(sendbuf, DEFAULT_BUFLEN, "Before we start! Do you have any account already created?\nPress \"Y\" if you do, or \"N\" if you don't and then press enter: ");
+    iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0); // Envio da mensagem contida no array de caracteres "sendbuf" para o cliente com o socket "current_client".
+    if (iSendResult == SOCKET_ERROR) { // No caso do envio dar erro.
+        printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
+        ExitThread(0); // Fecha-se a thread e limpa-se o espaço de memória que alocou.
+        closesocket(current_client); // Fecha-se o socket.
+        WSACleanup(); // Limpa-se o espaço de memória alocado pelo socket.
+        return false;
+    }
+
+    do
+    {
+        // receber buffer do cliente.
+        iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);
+
+        // De acordo com o que o cliente envia para o servidor, a função interpreter interpreta esse buffer e retorna um resultado. Na primeira iteração, o primeiro parametro que é passado para esta função será a indicação de que o utilizador não está autenticado para que seja facil processar a informação recebida de acordo com o estado em que a sessão está.
+        int interpretedResult =  interpreter(authentication, recvbuf);
+
+        // O código recebido da interpretação é tratado neste switch. Trata os casos do utilizador:
+            // Já tem conta e por isso tem a intenção de se autenticar (AUTHENTICATION_AUTHENTICATE, colocou "Y" na primeira pergunta)
+            // Não ter conta e por isso tem a intenção de criar uma para jogar (AUTHENTICATION_CREATE_ACCOUNT, colocou "N" na primeira pergunta)
+            // Durante a autenticação ou criação de conta, o utilizador pode querer voltar a preeencher um campo, para isso usa o comando "<-back" e no caso de ser possível, volta a preencher o último campo.
+            // No caso do código recebido ser do tipo accept entry, verifica-se se já estamos no último campo. Se sim, no caso de estarmos a criar conta, comparamos o valor dos campos "password" e "confirm password" e, se forem iguais, guarda-se em ficheiro a nova conta e pede-se ao utilizador para se autenticar com os dados que acabou de criar. No caso da autenticação, depois de se preencher os campos username e password, verifica-se se no ficheiro se encontra alguma conta com esses dados (caso não exista, envia-se essa menagem e o utilizador volta a inserir os dados de autenticação). Caso ainda não se esteja no último campo, o campo atual é gauradado no index indicado do aray fieldsEntries (ver informações do array em cima).
+            // No caso do valor ser identificado como GARBAGE é porque não tem significado nenhum e por isso deve pedir-se novamente ao utilizador a sua intenção.
+                
+        switch (interpretedResult)
+        {
+        case AUTHENTICATION_AUTHENTICATE: // Caso a intenção do cliente seja autenticar-se.
+            fields = MAX_NUM_AUTHENTICATION_FIELDS; // O número de campos a preencher passa a ser MAX_NUM_AUTHENTICATION_FIELDS.
+            authentication = isAuthenticating; // E a variável authentication passa a indicar que o cliente está a autenticar-se (isAuthenticating).
+            break;
+        case AUTHENTICATION_CREATE_ACCOUNT: // Caso a intenção do cliente seja criar conta.
+            fields = MAX_NUM_CREATE_ACCOUNT_FIELDS; // O número de campos a preencher passa a ser MAX_NUM_CREATE_ACCOUNT_FIELDS.
+            authentication = isCreatingAccount;// E a variável authentication passa a indicar que o cliente está a criar uma conta (isCreatingAccount).
+            break;
+        case AUTHENTICATION_BACK_FIELD:
+            if (authentication == isAuthenticating) // Se o utilizador se estiver a autenticar
+                if (fields >= MAX_NUM_AUTHENTICATION_FIELDS - 1) // e o número de campos for maior que o número maximo de campos - 1
+                    fields++; // Então é porque o utilizador não pode voltar mais para traz e por isso só se adiciona 1 aos fields (adiciona-se porque na última iteração removeu-se 1)
+                else
+                    fields += 2; // Caso contrário, então o utilizador pode voltar a preencher o último campo e por isso adiciona-se 2.
+            else if (authentication == isCreatingAccount) // A criação de conta funciona de forma análoga
+                if (fields < MAX_NUM_CREATE_ACCOUNT_FIELDS - 1)
+                    fields += 2;
+                else
+                    fields++;
+            break;
+        case ACCEPTED_ENTRY:
+
+            if (fields == 0) { // Caso se tenha alcançado o último campo de preenchimento
+                
+                if (authentication == isCreatingAccount)
+                {
+                    // Comparar se a password inserida é igual á password de confirmação
+                    if (!strcmp(fieldsEntries[MAX_NUM_CREATE_ACCOUNT_FIELDS - 2 - 1], recvbuf)) // No caso dos valores não serem iguais, envia-se uma mensagem de erro e volta-se a pedir para introduzir a password de novo.
+                    {
+                        strcpy_s(sendbuf, DEFAULT_BUFLEN, "Passwords doen't match! Try again\nPassword: ");
+                        iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
+                        if (iSendResult == SOCKET_ERROR) {
+                            printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
+                            closesocket(current_client);
+                            WSACleanup();
+                            return false;
+                        }
+                        ZeroMemory(fieldsEntries[MAX_NUM_CREATE_ACCOUNT_FIELDS - 2 - 1], DEFAULT_BUFLEN); // Uma vez que vamos voltar a pedir ao utilizador para inserir os dados da password, temos de os limpar do array.
+                        fields += 2;
+                        iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // Importante: Limpar lixo que está no buffer.
+                        continue; // Voltar ao inicio do while sem que o resto do código seja executado.
+                    }
+                    else // No caso do valor dos dois campos da password serem iguais, armazena-se os dados, limpa-se o ecra, faz-se o reset das variáveis e pede-se ao utilizador para se autenticar.
+                    {
+                        // TODO: Armazenar dados em ficheiro. Os dados vão estar no array de diemnsão MAX_NUM_CREATE_ACCOUNT_FIELDS. O campo que o conteudo de cada linha do array representa está indicado no switch seguinte. As linhas do array estão na ordem inversa.
+                    
+                        memset(fieldsEntries, 0, sizeof(fieldsEntries[MAX_NUM_CREATE_ACCOUNT_FIELDS-1][DEFAULT_BUFLEN]) * ( MAX_NUM_CREATE_ACCOUNT_FIELDS -1 ) * ( DEFAULT_BUFLEN ) ); // zerar array
+                        authentication = isAuthenticating;
+                        fields = MAX_NUM_AUTHENTICATION_FIELDS-1;
+                        system("cls"); // Limpar todo o ecra.
+                        strcpy_s(sendbuf, DEFAULT_BUFLEN, "Authentication:\nUsername: ");
+                        iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
+                        if (iSendResult == SOCKET_ERROR) {
+                            printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
+                            closesocket(current_client);
+                            WSACleanup();
+                            return false;
+                        }
+                        iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // Importante: Limpar lixo que está no buffer.
+                        continue; // Voltar ao inicio do while sem que o resto do código seja executado.
+                    }
+                }
+                else if (authentication == isAuthenticating)
+                {
+                    strcpy_s(fieldsEntries[fields], DEFAULT_BUFLEN, recvbuf);
+
+                    // TODO: Verificar se o que está no ficheiro está de acordo com os dados do array fieldsEntries.
+                    if (false) // No caso dos dados introduzidos estarem de acordo com os que estão em ficheiro
+                    {
+                        return true;
+                    }
+                    else // Caso contrário, limpam-se todos os dados e pede-se ao utilizador para colocar os dados de autenticação novamente.
+                    {
+                        fields = MAX_NUM_AUTHENTICATION_FIELDS-1;
+                        memset(fieldsEntries, 0, sizeof(fieldsEntries[MAX_NUM_CREATE_ACCOUNT_FIELDS -1][DEFAULT_BUFLEN]) * (MAX_NUM_CREATE_ACCOUNT_FIELDS -1 ) * (DEFAULT_BUFLEN)); // zerar array
+                        system("cls"); // Limpar todo o ecra.
+                        strcpy_s(sendbuf, DEFAULT_BUFLEN, "There is no such account! Try again.\nUsername: ");
+                        iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
+                        if (iSendResult == SOCKET_ERROR) {
+                            printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
+                            closesocket(current_client);
+                            WSACleanup();
+                            return false;
+                        }
+                        iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // Importante: Limpar lixo que está no buffer.
+                        continue;
+                    }
+                    
+                    
+                }
+            }
+            else // Caso contrário, este array é preenchido com os valores dos campos de preenchiento para a criação de uma conta. No final este array vai ser utilizado para se escrever em ficheiro os dados das contas.
+                if (authentication == isAuthenticating)
+                    strcpy_s(fieldsEntries[fields], DEFAULT_BUFLEN, recvbuf); // Esta array é para o caso da autenticação e é preenchido na ordem iversa.
+                else 
+                    strcpy_s(fieldsEntries[fields-1], DEFAULT_BUFLEN, recvbuf); // Esta array é para o caso da criação de conta e é preenchido na ordem iversa.
+
+            
+            break;
+        case GARBAGE:
+            // Informa o cliente que os dados que inseriu não estão dentro do protocolo de comunicação e que por isso deve voltar a submeter o comando.
+            strcpy_s(sendbuf, DEFAULT_BUFLEN, "Invalid command! please select one of the mentioned options!\n");
+            iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
+            if (iSendResult == SOCKET_ERROR) {
+                printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
+                closesocket(current_client);
+                WSACleanup();
+                return false;
+            }
+            //recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // Limpar lixo do buffer que recebe dados do cliente.
+            continue; // Voltar ao inicio do while sem que o resto do código seja executado.
+            break;
+        default:
+            break;
+        }
+
+
+        // Depois de ser interpretar e tratar a mensagem do cliente para o servidor, cria-se a mensagem de resposta do servidor para o cliente
+        switch (authentication)
+        {
+        case isAuthenticating:
+            switch (fields)
+            {
+            case MAX_NUM_AUTHENTICATION_FIELDS: // Valor do array: Username -> 1 ; Valor do case: 2
+                strcpy_s(sendbuf, DEFAULT_BUFLEN, "\nUsername: ");
+                fields--; // Elimina-se um campo poque este já está a ser tratado e assim a variavel fields pode ser utilizada para aceder como index ao array fieldsEntries.
+                break;
+            case MAX_NUM_AUTHENTICATION_FIELDS - 1: // Valor do array: Password -> 0 ; Valor do case: 1
+                strcpy_s(sendbuf, DEFAULT_BUFLEN, "\nPassword: ");
+                fields--;
+                break;
+            default:
+                break;
+            }
+            break;
+        case isCreatingAccount:
+            switch (fields)
+            {
+            case MAX_NUM_CREATE_ACCOUNT_FIELDS: // Valor do array: Username -> 2 ; Valor do case: 4
+                strcpy_s(sendbuf, DEFAULT_BUFLEN, "\nUsername: ");
+                fields--;
+                break;
+            case MAX_NUM_CREATE_ACCOUNT_FIELDS - 1: // Valor do array: Email -> 1 ; Valor do case: 3
+                strcpy_s(sendbuf, DEFAULT_BUFLEN, "\nEmail: ");
+                fields--;
+                break;
+            case MAX_NUM_CREATE_ACCOUNT_FIELDS - 2: // Valor do array: Password -> 0 ; Valor do case: 2
+                strcpy_s(sendbuf, DEFAULT_BUFLEN, "\nPassword: ");
+                fields--;
+                break;
+            case MAX_NUM_CREATE_ACCOUNT_FIELDS - 3: // Valor do array: Confirm Password -> não tem ; Valor do case: 1
+                strcpy_s(sendbuf, DEFAULT_BUFLEN, "\nConfirm password: ");
+                fields--;
+                break;
+            default:
+                break;
+            }
+            break;
+        default:
+            break;
+        }
+
+
+        // ENvio da mensagem de resposta do servidor para o cliente.
+        iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
+        if (iSendResult == SOCKET_ERROR) { // Tratamento de possível erro.
+            printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
+            closesocket(current_client);
+            WSACleanup();
+            return false;
+        }
+
+
+        // Limpeza dos buffers
+        ZeroMemory(recvbuf, DEFAULT_BUFLEN);
+        ZeroMemory(sendbuf, DEFAULT_BUFLEN);
+
+        iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // IMPORTANTE: Limpar lixo que está no buffer.
+
+    } while (iRecvResult > 0);
+
+}
+
+
+
+
+
+
+
+
 
 // Função que representa a parte do código que será possívelmente executada em multiplas threads.
 // Esta funcionalidade permite que multiplos clientes estejam conectados e a comunicar com o mesmo servidor simultaneamente através da criação de uma thread para cada novo cliente que se conecta ao servidor.
@@ -106,7 +384,7 @@ DWORD WINAPI client_thread(SOCKET params) {
     printf("%d: Connection established\n", GetCurrentThreadId());
     
     // Envio de uma mensagem informativa sobre o estado de conexão com o servidor, assim como a interpretação do resultado do envio de forma a evitar possíveis erros.
-    strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK: Connection established\nUse the HELP command for the list of commands available\n"); // Preenchimento do buffer de envio com a mensagem que se pretende enviar.
+    strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK: Connection established\n"); // Preenchimento do buffer de envio com a mensagem que se pretende enviar.
     iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0); // Envio da mensagem contida no array de caracteres "sendbuf" para o cliente com o socket "current_client".
     if (iSendResult == SOCKET_ERROR) { //Interpretação do resultado do envio da mensagem de forma a informar possíveis erros.
         // Em caso de erro:
@@ -115,6 +393,10 @@ DWORD WINAPI client_thread(SOCKET params) {
         WSACleanup(); // Limpeza de possiveis recursos alocados.
         return 1;
     }
+
+    // UPDATE: Esta função vai tratar da autenticação do servidor. Caso não tenha conta, cria-a, caso contrário autentica-o.
+    startAuthentication(current_client);
+
 
     // Recebe informação até que a conexão entre o servidor e o cliente seja fechada, ou seja, enqaundo o cliente enviar informação para o servidor (iRecvResult > 0).
     do {
@@ -172,7 +454,7 @@ DWORD WINAPI client_thread(SOCKET params) {
                 randomnumber = rand() % 3;
 
                 // Utilizar a função criada em cima para interpretar a mensagem recebida.
-                receivedMsgValue = playOrRestart(recvbuf);
+                receivedMsgValue = interpreter(1, -1, -1, recvbuf);
 
 
 
