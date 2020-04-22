@@ -224,7 +224,7 @@ bool startAuthentication(SOCKET current_client) {
                     }
                     else // No caso do valor dos dois campos da password serem iguais, armazena-se os dados, limpa-se o ecra, faz-se o reset das variáveis e pede-se ao utilizador para se autenticar.
                     {
-                        // ChangeFileData(&fieldsEntries, REGISTER_USER);
+                        ChangeFileData(*fieldsEntries, REGISTER_USER);
                     
                         memset(fieldsEntries, 0, sizeof(fieldsEntries[MAX_NUM_CREATE_ACCOUNT_FIELDS-1][DEFAULT_BUFLEN]) * ( MAX_NUM_CREATE_ACCOUNT_FIELDS -1 ) * ( DEFAULT_BUFLEN ) ); // zerar array
                         authentication = isAuthenticating;
@@ -363,7 +363,7 @@ bool startAuthentication(SOCKET current_client) {
 
 }
 
-int RegisterUserDataOnFile(char* data)
+int RegisterUserDataOnFile(char (*data)[DEFAULT_BUFLEN])
 {
     FILE* file;
 
@@ -377,7 +377,7 @@ int RegisterUserDataOnFile(char* data)
         }
 
         // É guardado o novo utilizador logo no início do ficheiro e é fechado
-        fprintf(file, "%s;%s;%s\n", data[0], data[1], data[2]);
+        fprintf(file, "%s;%s;%s\n", data[2], data[1], data[0]);
         fclose(file);
 
         return SUCCESS_SAVING;
@@ -422,13 +422,13 @@ int RegisterUserDataOnFile(char* data)
             }
 
             // Verificação se algum utilizador no ficheiro tem o mesmo username que o usado para registar
-            if (strcmp(dataUser[0], &data[1]) == 0)
+            if (strcmp(dataUser[0], data[2]) == 0)
             {
                 return USER_ALREADY_EXISTS;
             }
 
             // Verificação se algum utilizador no ficheiro tem o mesmo email que o usado para registar
-            if (strcmp(dataUser[1], &data[2]) == 0)
+            if (strcmp(dataUser[1], data[1]) == 0)
             {
                 return EMAIL_ALREADY_USED;
             }
@@ -444,7 +444,7 @@ int RegisterUserDataOnFile(char* data)
         }
 
         // É guardado o novo utilizador no ficheiro e é fechado o ficheiro
-        fprintf(file, "%s;%s;%s\n", &data[0], &data[1], &data[2]);
+        fprintf(file, "%s;%s;%s\n", data[2], data[1], data[0]);
         fclose(file);
 
         return SUCCESS_SAVING;
@@ -491,12 +491,6 @@ int ChangeFileData(char* data, int operation)
             return ERROR_SAVING;
     }
 }
-
-    
-
-
-
-
 
 
 // Função que representa a parte do código que será possívelmente executada em multiplas threads.
