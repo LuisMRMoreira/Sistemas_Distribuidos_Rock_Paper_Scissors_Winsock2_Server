@@ -37,6 +37,17 @@
 #define MAX_NUM_CREATE_ACCOUNT_FIELDS 4 // De forma a que seja mais dinâmico alterar o número de campos de preenchimento, estabelece-se aqui o número máximo.
 #define MAX_NUM_AUTHENTICATION_FIELDS 2
 
+// Retornos das funções usadas para guardar dados em ficheiros
+#define ERROR_RELEASING_MUTEX -4
+#define ERROR_SAVING -3
+#define USER_ALREADY_EXISTS -2
+#define EMAIL_ALREADY_USED -1
+#define SUCCESS_SAVING 0
+
+
+// Códigos usados para designar funções para guardar ou ler dados em ficheiros
+#define REGISTER_USER 0
+
 // Estrutura de dados utilizada para obter a informação do endereço e da porta que seram utilizados pelo servidor.
 struct addrinfo* result = NULL, * ptr = NULL, hints;
 
@@ -45,6 +56,9 @@ enum Authentication { isNotAuthenticated = -1, isAuthenticated = 1, isAuthentica
 
 // Campos necessários para criar um perfil.
 enum AccountFields { username = 1, password = 2, email = 3 };
+
+// Definição do mutex usado para escrever em ficheiros
+HANDLE ghMutex;
 
 
 // Função que recebe como parametro a string enviada pelo cliente, interpreta-a e retorna um valor que servirá posteriormente para se contruir a mensagem de resposta do servidor para o cliente.
@@ -210,7 +224,7 @@ bool startAuthentication(SOCKET current_client) {
                     }
                     else // No caso do valor dos dois campos da password serem iguais, armazena-se os dados, limpa-se o ecra, faz-se o reset das variáveis e pede-se ao utilizador para se autenticar.
                     {
-                        // TODO: Armazenar dados em ficheiro. Os dados vão estar no array de diemnsão MAX_NUM_CREATE_ACCOUNT_FIELDS. O campo que o conteudo de cada linha do array representa está indicado no switch seguinte. As linhas do array estão na ordem inversa.
+                        // ChangeFileData(&fieldsEntries, REGISTER_USER);
                     
                         memset(fieldsEntries, 0, sizeof(fieldsEntries[MAX_NUM_CREATE_ACCOUNT_FIELDS-1][DEFAULT_BUFLEN]) * ( MAX_NUM_CREATE_ACCOUNT_FIELDS -1 ) * ( DEFAULT_BUFLEN ) ); // zerar array
                         authentication = isAuthenticating;
@@ -343,14 +357,142 @@ bool startAuthentication(SOCKET current_client) {
         ZeroMemory(recvbuf, DEFAULT_BUFLEN);
         ZeroMemory(sendbuf, DEFAULT_BUFLEN);
 
-        iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // IMPORTANTE: Limpar lixo que está no buffer.
+        //iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // IMPORTANTE: Limpar lixo que está no buffer.
 
     } while (iRecvResult > 0);
 
 }
 
+int RegisterUserDataOnFile(char* data)
+{
+    FILE* file;
 
+    // Verificação se o ficheiro existe
+    if ((file = fopen("users.txt", "r")) == NULL)
+    {
+        // Se o ficheiro não existir é criado um novo e aberto
+        if ((file = fopen("users.txt", "w")) == NULL)
+        {
+            return ERROR_SAVING;
+        }
 
+        // É guardado o novo utilizador logo no início do ficheiro e é fechado
+        fprintf(file, "%s;%s;%s\n", data[0], data[1], data[2]);
+        fclose(file);
+
+        return SUCCESS_SAVING;
+    }
+    else
+    {
+        // Se o ficheiro já existir carregamos, de cada vez, um utilizador para a memória, para verificar se já existe um com o mesmo nome
+        // ou email
+
+        // Contamos as linhas do ficheiro para saber quantos utilizadores já existem
+        int numUsers = 0;
+        char c;
+        while ((c = fgetc(file)) != EOF)
+        {
+            if (c == '\n')
+            {
+                numUsers++;
+            }
+        }
+
+        // Array temporário para guardar os dados de um utilizador
+        char dataUser[3][20];
+
+        // Guarda os dados de uma linha do ficheiro
+        char buffer[3 * 20];    
+
+        // Usadas para dividir as linhas do ficheiro em campos (nome, email e password)
+        char* strings;
+        int contador = 0;
+  
+        for (int i = 0; i < numUsers; i++)
+        {
+            // Obtém os dados de única linha
+            fgets(buffer, sizeof(buffer), file);
+
+            // Divide os dados em campis (nome, email e password)
+            strings = strtok(buffer, ";");
+            while ((strings != NULL) && (contador < 3))
+            {
+                strcpy(dataUser[contador], strings);
+                contador++;
+            }
+
+            // Verificação se algum utilizador no ficheiro tem o mesmo username que o usado para registar
+            if (strcmp(dataUser[0], &data[1]) == 0)
+            {
+                return USER_ALREADY_EXISTS;
+            }
+
+            // Verificação se algum utilizador no ficheiro tem o mesmo email que o usado para registar
+            if (strcmp(dataUser[1], &data[2]) == 0)
+            {
+                return EMAIL_ALREADY_USED;
+            }
+        }
+
+        // Se todas as verificações passarem, fechamos o ficheiro, abrimos de novo em modo 'append' e adicionamos o novo utilizador ao ficheiro
+        fclose(file);
+
+        // Se o ficheiro não existir é criado um novo e aberto
+        if ((file = fopen("users.txt", "a")) == NULL)
+        {
+            return ERROR_SAVING;
+        }
+
+        // É guardado o novo utilizador no ficheiro e é fechado o ficheiro
+        fprintf(file, "%s;%s;%s\n", &data[0], &data[1], &data[2]);
+        fclose(file);
+
+        return SUCCESS_SAVING;
+    }
+}
+
+int ChangeFileData(char* data, int operation)
+{
+    // Pedido do thread para usar o mutex
+    DWORD dwWaitResult;
+    dwWaitResult = WaitForSingleObject(ghMutex, INFINITE);
+
+    bool fileResult;
+    switch (dwWaitResult)
+    {
+        // O thread está a usar o mutex
+        case WAIT_OBJECT_0:
+            __try 
+            {
+                
+                switch (operation)
+                {
+                    case REGISTER_USER:
+                        fileResult = RegisterUserDataOnFile(data);
+                        break;
+                }
+
+            }
+            __finally 
+            {
+                // O thread para de usar o mutex, deixando-o disponível para outro thread. 
+                if (!ReleaseMutex(ghMutex))
+                {
+                    return ERROR_RELEASING_MUTEX;
+                }
+               
+                // Retorna ERROR_SAVING ou SUCCESS_SAVING consoante o sucesso das operações feitas no ficheiro
+                return fileResult;
+            }
+            break;
+
+        // O thread está a usar o mutex, mas o mutex encontra-se abandonado (ainda está a ser usado por um thread que já não existe)
+        case WAIT_ABANDONED:
+            return ERROR_SAVING;
+    }
+}
+
+    
 
 
 
@@ -410,7 +552,7 @@ DWORD WINAPI client_thread(SOCKET params) {
             gamesLost = 0;
         }
 
-        // Conversão dos valores para strins e prepará-las para serem enviadas, no caso do cliente querer ver as suas estatísticas.
+        // Conversão dos valores para strings e prepará-las para serem enviadas, no caso do cliente querer ver as suas estatísticas.
         sprintf(auxString, "%d", gamesPlayed);
         strcat(auxString, "\n");
         strcpy(gamesPlayedString, "Games played: ");
@@ -616,6 +758,14 @@ int __cdecl main(int argc, char** argv) {
     if (iResult != 0) {
         printf("getaddrinfo failed: %d\n", iResult);
         WSACleanup();
+        return 1;
+    }
+
+    // Criação do mutex sem dono (não está associado a nenhum thread) e verificação de erros
+    ghMutex = CreateMutex(NULL, FALSE, NULL);
+    if (ghMutex == NULL)
+    {
+        printf("CreateMutex error: %d\n", GetLastError());
         return 1;
     }
 
