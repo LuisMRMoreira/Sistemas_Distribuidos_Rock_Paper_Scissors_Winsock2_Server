@@ -52,6 +52,7 @@
 // Códigos usados para designar funções para guardar ou ler dados em ficheiros
 #define REGISTER_USER 0
 #define AUTHENTICATE_USER 1
+#define SAVE_USER_STATS 2
 
 // Estrutura de dados utilizada para obter a informação do endereço e da porta que seram utilizados pelo servidor.
 struct addrinfo* result = NULL, * ptr = NULL, hints;
@@ -319,6 +320,10 @@ bool startAuthentication(SOCKET current_client) {
                             break;
                         case NO_REGISTERED_USERS:
                             strcpy_s(sendbuf, DEFAULT_BUFLEN, "No registered users in our records!");
+                            break;
+                        case ERROR_SAVING:
+                        default:
+                            strcpy(sendbuf, DEFAULT_BUFLEN, "An error occured when trying to authenticate!");
                             break;
                     }
 
@@ -588,6 +593,76 @@ int AuthenticateUserDataOnFile(char(*data)[DEFAULT_BUFLEN])
     return USER_NOT_FOUND;
 }
 
+// stats[0] -> Número de jogos 
+// stats[1] -> Número de vitorias
+// stats[2] -> Número de derrotas
+// stats[3] -> Número de empates
+int SaveUserStats(char* username, int stats[4])
+{
+    FILE* file;
+
+    // Verificação se o ficheiro existe
+    if ((file = fopen("stats.txt", "r")) == NULL)
+    {
+        // Se o ficheiro não existir é criado um novo e aberto
+        if ((file = fopen("stats.txt", "w")) == NULL)
+        {
+            return ERROR_SAVING;
+        }
+
+        // É guardado o novo utilizador logo no início do ficheiro e é fechado
+        fprintf(file, "%d;%s;%s;%s\n", username, stats[0], stats[1], stats[2], stats[3]);
+        fclose(file);
+
+        return SUCCESS_SAVING;
+    }
+    else
+    {
+        // Se o ficheiro já existir carregamos, de cada vez, as estatísticas de utilizador cada vez
+
+        // Contamos as linhas do ficheiro para saber quantos utilizadores já existem
+        int numUsers = 0;
+        char c;
+        while ((c = fgetc(file)) != EOF)
+        {
+            if (c == '\n')
+            {
+                numUsers++;
+            }
+        }
+
+        // Após contar o número de utilizadores volta ao início do ficheiro
+        fseek(file, 0, SEEK_SET);
+
+        // Array temporário para guardar os dados de um utilizador
+        char tempUsername[20];
+
+        // TODO: Get username from single line and check if the username matches. If it does save the number of line.
+        //       Load the users into memory, and change the stats content using the number of line
+
+        for (int i = 0; i < numUsers; i++)
+        {
+
+        }
+
+
+        // Se todas as verificações passarem, fechamos o ficheiro, abrimos de novo em modo 'append' e adicionamos o novo utilizador ao ficheiro
+        fclose(file);
+
+        // Se o ficheiro não existir é criado um novo e aberto
+        if ((file = fopen("users.txt", "a")) == NULL)
+        {
+            return ERROR_SAVING;
+        }
+
+        // É guardado o novo utilizador no ficheiro e é fechado o ficheiro
+        fprintf(file, "%s;%s;%s\n", data[2], data[1], data[0]);
+        fclose(file);
+
+        return SUCCESS_SAVING;
+    }
+}
+
 int ChangeFileData(char* data, int operation)
 {
     // Pedido do thread para usar o mutex
@@ -608,6 +683,8 @@ int ChangeFileData(char* data, int operation)
                         break;
                     case AUTHENTICATE_USER:
                         fileResult = AuthenticateUserDataOnFile(data);
+                        break;
+                    case SAVE_USER_STATS:
                         break;
                     default:
                         fileResult = ERROR_SAVING;
@@ -730,7 +807,7 @@ DWORD WINAPI client_thread(SOCKET params) {
                 randomnumber = rand() % 3;
 
                 // Utilizar a função criada em cima para interpretar a mensagem recebida.
-                receivedMsgValue = interpreter(1, -1, -1, recvbuf);
+                receivedMsgValue = interpreter(1, recvbuf);
 
 
 
