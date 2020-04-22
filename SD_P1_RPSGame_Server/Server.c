@@ -37,16 +37,21 @@
 #define MAX_NUM_CREATE_ACCOUNT_FIELDS 4 // De forma a que seja mais dinâmico alterar o número de campos de preenchimento, estabelece-se aqui o número máximo.
 #define MAX_NUM_AUTHENTICATION_FIELDS 2
 
-// Retornos das funções usadas para guardar dados em ficheiros
+// Retornos das funções usadas para guardar e ler dados em ficheiros associadas à autenticação
+#define WRONG_PASSWORD -7
+#define USER_NOT_FOUND -6
+#define NO_REGISTERED_USERS -5
 #define ERROR_RELEASING_MUTEX -4
 #define ERROR_SAVING -3
 #define USER_ALREADY_EXISTS -2
 #define EMAIL_ALREADY_USED -1
 #define SUCCESS_SAVING 0
+#define SUCCESS_AUTHENTICATING 1
 
 
 // Códigos usados para designar funções para guardar ou ler dados em ficheiros
 #define REGISTER_USER 0
+#define AUTHENTICATE_USER 1
 
 // Estrutura de dados utilizada para obter a informação do endereço e da porta que seram utilizados pelo servidor.
 struct addrinfo* result = NULL, * ptr = NULL, hints;
@@ -59,6 +64,12 @@ enum AccountFields { username = 1, password = 2, email = 3 };
 
 // Definição do mutex usado para escrever em ficheiros
 HANDLE ghMutex;
+
+int interpreter(enum Authentication value, char* recvbuf);
+bool startAuthentication(SOCKET current_client);
+int RegisterUserDataOnFile(char (*data)[DEFAULT_BUFLEN]);
+int ChangeFileData(char* data, int operation);
+DWORD WINAPI client_thread(SOCKET params);
 
 
 // Função que recebe como parametro a string enviada pelo cliente, interpreta-a e retorna um valor que servirá posteriormente para se contruir a mensagem de resposta do servidor para o cliente.
@@ -224,13 +235,52 @@ bool startAuthentication(SOCKET current_client) {
                     }
                     else // No caso do valor dos dois campos da password serem iguais, armazena-se os dados, limpa-se o ecra, faz-se o reset das variáveis e pede-se ao utilizador para se autenticar.
                     {
-                        ChangeFileData(*fieldsEntries, REGISTER_USER);
+                        int fileResult = ChangeFileData(*fieldsEntries, REGISTER_USER);
+
+                        switch (fileResult)
+                        {
+                            // Existiu um erro a guardar os dados
+                            case ERROR_SAVING:
+                                strcpy_s(sendbuf, DEFAULT_BUFLEN, "Couldn't save the new user in our records!\n");
+                                return false;
+                            // Os dados foram guardados, no entanto ocorreu um erro a dar release do mutex. O utilizador é avisado que os dados foram guardados, mas
+                            // a conexão é finalizada.
+                            case ERROR_RELEASING_MUTEX:
+                                strcpy_s(sendbuf, DEFAULT_BUFLEN, "The user was sucessfully saved in our records.\n");
+                                strcat_s(sendbuf, DEFAULT_BUFLEN, "An error with the server. Shutting down connection...\n");
+                                printf("An error occured when releasing the mutex");
+
+                                iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
+                                if (iSendResult == SOCKET_ERROR) {
+                                    printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
+                                    closesocket(current_client);
+                                    WSACleanup();
+                                    return false;
+                                }
+
+                                return false;
+                            // Já existe uma entrada com o username inserido no registo
+                            case USER_ALREADY_EXISTS:
+                                strcpy_s(sendbuf, DEFAULT_BUFLEN, "A user with that username already exists!\n\n");
+                                strcat_s(sendbuf, DEFAULT_BUFLEN, "Authentication:\nUsername: ");
+                                break;
+                            // Já existe uma entrada com o email inserido no registo
+                            case EMAIL_ALREADY_USED:
+                                strcpy_s(sendbuf, DEFAULT_BUFLEN, "A user with that email already exists!\n\n");
+                                strcat_s(sendbuf, DEFAULT_BUFLEN, "Authentication:\nUsername: ");
+                                break;
+                            // Registo com sucesso
+                            case SUCCESS_SAVING:
+                                strcpy_s(sendbuf, DEFAULT_BUFLEN, "The register process was successfull\n\n");
+                                strcat_s(sendbuf, DEFAULT_BUFLEN, "Authentication:\nUsername: ");
+                                printf("A new user has registered: %s", fieldsEntries[2]);
+                                break;
+                        }
                     
                         memset(fieldsEntries, 0, sizeof(fieldsEntries[MAX_NUM_CREATE_ACCOUNT_FIELDS-1][DEFAULT_BUFLEN]) * ( MAX_NUM_CREATE_ACCOUNT_FIELDS -1 ) * ( DEFAULT_BUFLEN ) ); // zerar array
                         authentication = isAuthenticating;
                         fields = MAX_NUM_AUTHENTICATION_FIELDS-1;
-                        system("cls"); // Limpar todo o ecra.
-                        strcpy_s(sendbuf, DEFAULT_BUFLEN, "Authentication:\nUsername: ");
+                        
                         iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
                         if (iSendResult == SOCKET_ERROR) {
                             printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
@@ -246,29 +296,45 @@ bool startAuthentication(SOCKET current_client) {
                 {
                     strcpy_s(fieldsEntries[fields], DEFAULT_BUFLEN, recvbuf);
 
-                    // TODO: Verificar se o que está no ficheiro está de acordo com os dados do array fieldsEntries.
-                    if (false) // No caso dos dados introduzidos estarem de acordo com os que estão em ficheiro
+
+                    int fileResult = ChangeFileData(*fieldsEntries, AUTHENTICATE_USER);
+                    switch (fileResult)
                     {
-                        return true;
+                        // No caso dos dados introduzidos estarem de acordo com os que estão em ficheiro
+                        case SUCCESS_AUTHENTICATING:
+                            strcpy_s(sendbuf, DEFAULT_BUFLEN, "Authenticated with success!");
+                            iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
+                            if (iSendResult == SOCKET_ERROR) {
+                                printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
+                                closesocket(current_client);
+                                WSACleanup();
+                                return false;
+                            }
+                            return true;
+                        case WRONG_PASSWORD:
+                            strcpy_s(sendbuf, DEFAULT_BUFLEN, "The password for the user is wrong!");
+                            break;
+                        case USER_NOT_FOUND:
+                            strcpy_s(sendbuf, DEFAULT_BUFLEN, "The user couldn't not be found in our records!");
+                            break;
+                        case NO_REGISTERED_USERS:
+                            strcpy_s(sendbuf, DEFAULT_BUFLEN, "No registered users in our records!");
+                            break;
                     }
-                    else // Caso contrário, limpam-se todos os dados e pede-se ao utilizador para colocar os dados de autenticação novamente.
-                    {
-                        fields = MAX_NUM_AUTHENTICATION_FIELDS-1;
-                        memset(fieldsEntries, 0, sizeof(fieldsEntries[MAX_NUM_CREATE_ACCOUNT_FIELDS -1][DEFAULT_BUFLEN]) * (MAX_NUM_CREATE_ACCOUNT_FIELDS -1 ) * (DEFAULT_BUFLEN)); // zerar array
-                        system("cls"); // Limpar todo o ecra.
-                        strcpy_s(sendbuf, DEFAULT_BUFLEN, "There is no such account! Try again.\nUsername: ");
-                        iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
-                        if (iSendResult == SOCKET_ERROR) {
-                            printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
-                            closesocket(current_client);
-                            WSACleanup();
-                            return false;
-                        }
-                        iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // Importante: Limpar lixo que está no buffer.
-                        continue;
+
+                    fields = MAX_NUM_AUTHENTICATION_FIELDS-1;
+                    memset(fieldsEntries, 0, sizeof(fieldsEntries[MAX_NUM_CREATE_ACCOUNT_FIELDS -1][DEFAULT_BUFLEN]) * (MAX_NUM_CREATE_ACCOUNT_FIELDS -1 ) * (DEFAULT_BUFLEN)); // zerar array
+                    system("cls"); // Limpar todo o ecra.
+                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "There is no such account! Try again.\nUsername: ");
+                    iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
+                    if (iSendResult == SOCKET_ERROR) {
+                        printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
+                        closesocket(current_client);
+                        WSACleanup();
+                        return false;
                     }
-                    
-                    
+                    iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // Importante: Limpar lixo que está no buffer.
+                    continue;             
                 }
             }
             else // Caso contrário, este array é preenchido com os valores dos campos de preenchiento para a criação de uma conta. No final este array vai ser utilizado para se escrever em ficheiro os dados das contas.
@@ -398,6 +464,9 @@ int RegisterUserDataOnFile(char (*data)[DEFAULT_BUFLEN])
             }
         }
 
+        // Após contar o número de utilizadores volta ao início do ficheiro
+        fseek(file, 0, SEEK_SET);
+
         // Array temporário para guardar os dados de um utilizador
         char dataUser[3][20];
 
@@ -451,27 +520,98 @@ int RegisterUserDataOnFile(char (*data)[DEFAULT_BUFLEN])
     }
 }
 
+int AuthenticateUserDataOnFile(char(*data)[DEFAULT_BUFLEN])
+{
+    FILE *file;
+
+    // Verificação se o ficheiro existe
+    // Se não existir, significa que não existe nenhum utilizador registado
+    if ((file = fopen("users.txt", "r")) == NULL)
+    {
+        return NO_REGISTERED_USERS;
+    }
+
+    // Contamos as linhas do ficheiro para saber quantos utilizadores já existem
+    int numUsers = 0;
+    char c;
+    while ((c = fgetc(file)) != EOF)
+    {
+        if (c == '\n')
+        {
+            numUsers++;
+        }
+    }
+
+    // Após contar o número de utilizadores volta ao início do ficheiro
+    fseek(file, 0, SEEK_SET);
+    
+    // Array temporário para guardar os dados de um utilizador
+    char dataUser[3][20];
+
+    // Guarda os dados de uma linha do ficheiro
+    char buffer[3 * 20];
+
+    // Usadas para dividir as linhas do ficheiro em campos (nome, email e password)
+    char* strings;
+    int contador = 0;
+    for (int i = 0; i < numUsers; i++)
+    {
+        // Obtém os dados de única linha
+        fgets(buffer, sizeof(buffer), file);
+
+        // Divide os dados em campis (nome, email e password)
+        strings = strtok(buffer, ";");
+        while ((strings != NULL) && (contador < 3))
+        {
+            strcpy(dataUser[contador], strings);
+            contador++;
+        }
+
+        // Verificação se algum utilizador no ficheiro tem o mesmo username nos registos
+        if (strcmp(dataUser[0], data[1]) == 0)
+        {
+            // Dado que apenas pode haver um utilizador com o mesmo username, então podemos fechar o ficheiro, porque não vamos encontrar outro
+            // com o mesmo username
+            fclose(file);
+
+            // Comparam-se as passwords
+            if (strcmp(dataUser[1], data[1]) == 0)
+            {
+                return SUCCESS_AUTHENTICATING;
+            }
+            return WRONG_PASSWORD;
+        }
+    }
+
+    fclose(file);
+
+    return USER_NOT_FOUND;
+}
+
 int ChangeFileData(char* data, int operation)
 {
     // Pedido do thread para usar o mutex
     DWORD dwWaitResult;
     dwWaitResult = WaitForSingleObject(ghMutex, INFINITE);
 
-    bool fileResult;
+    int fileResult;
     switch (dwWaitResult)
     {
         // O thread está a usar o mutex
         case WAIT_OBJECT_0:
             __try 
             {
-                
                 switch (operation)
                 {
                     case REGISTER_USER:
                         fileResult = RegisterUserDataOnFile(data);
                         break;
+                    case AUTHENTICATE_USER:
+                        fileResult = AuthenticateUserDataOnFile(data);
+                        break;
+                    default:
+                        fileResult = ERROR_SAVING;
                 }
-
             }
             __finally 
             {
@@ -481,7 +621,7 @@ int ChangeFileData(char* data, int operation)
                     return ERROR_RELEASING_MUTEX;
                 }
                
-                // Retorna ERROR_SAVING ou SUCCESS_SAVING consoante o sucesso das operações feitas no ficheiro
+                // Retorna o resultado das funções em cima
                 return fileResult;
             }
             break;
