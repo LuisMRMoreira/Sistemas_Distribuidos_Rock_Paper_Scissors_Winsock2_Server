@@ -37,7 +37,8 @@
 #define MAX_NUM_CREATE_ACCOUNT_FIELDS 4 // De forma a que seja mais dinâmico alterar o número de campos de preenchimento, estabelece-se aqui o número máximo.
 #define MAX_NUM_AUTHENTICATION_FIELDS 2
 
-// Retornos das funções usadas para guardar e ler dados em ficheiros associadas à autenticação
+// Retornos das funções usadas para guardar e ler dados em ficheiros
+#define NO_STATS_FOUND
 #define WRONG_PASSWORD -7
 #define USER_NOT_FOUND -6
 #define NO_REGISTERED_USERS -5
@@ -47,6 +48,9 @@
 #define EMAIL_ALREADY_USED -1
 #define SUCCESS_SAVING 0
 #define SUCCESS_AUTHENTICATING 1
+#define STATS_OBTAINED;
+
+
 
 
 // Códigos usados para designar funções para guardar ou ler dados em ficheiros
@@ -56,6 +60,15 @@
 
 // Estrutura de dados utilizada para obter a informação do endereço e da porta que seram utilizados pelo servidor.
 struct addrinfo* result = NULL, * ptr = NULL, hints;
+
+// Estrutura que guarda os dados de utilizadores
+struct Stats {
+    char username[20];
+    int nGames;
+    int nWins;
+    int nLosses;
+    int nDraws;
+};
 
 // UPDATE: Este enum foi criado de forma a que o interpretador passe receba a informação necessária para interpretar o buffer que veio do cliente. Quando um cliente "isAuthenticating" e "isCreatingAccount" não está autenticado, no entanto foi adicionado o "isNotAuthenticated" para o caso de não se saber gual a intenção do cliente quando não está autenticado.
 enum Authentication { isNotAuthenticated = -1, isAuthenticated = 1, isAuthenticating = 2, isCreatingAccount = 3 };
@@ -69,6 +82,8 @@ HANDLE ghMutex;
 int interpreter(enum Authentication value, char* recvbuf);
 bool startAuthentication(SOCKET current_client);
 int RegisterUserDataOnFile(char (*data)[DEFAULT_BUFLEN]);
+int AuthenticateUserDataOnFile(char (*data)[DEFAULT_BUFLEN]);
+int SaveUserStats(char* username, int stats[4]);
 int ChangeFileData(char* data, int operation);
 DWORD WINAPI client_thread(SOCKET params);
 
@@ -593,11 +608,57 @@ int AuthenticateUserDataOnFile(char(*data)[DEFAULT_BUFLEN])
     return USER_NOT_FOUND;
 }
 
-// stats[0] -> Número de jogos 
-// stats[1] -> Número de vitorias
-// stats[2] -> Número de derrotas
-// stats[3] -> Número de empates
-int SaveUserStats(char* username, int stats[4])
+int GetUserStats(struct Stats* userStats)
+{
+    FILE *file;
+
+    userStats->nGames = 0;
+    userStats->nWins = 0;
+    userStats->nLosses = 0;
+    userStats->nDraws = 0;
+
+    // Verificação se o ficheiro existe
+    if ((file = fopen("stats.txt", "r")) == NULL)
+    {
+        return NO_STATS_FOUND;
+    }
+
+    // Contamos as linhas do ficheiro para saber quantos utilizadores já existem
+    int numUsers = 0;
+    char c;
+    while ((c = fgetc(file)) != EOF)
+    {
+        if (c == '\n')
+        {
+            numUsers++;
+        }
+    }
+
+    // Após contar o número de utilizadores volta ao início do ficheiro
+    fseek(file, 0, SEEK_SET);
+
+    for (int i = 0; i < numUsers; i++)
+    {
+        struct Stats temp;
+        fscanf(file, "%s;%d;%d;%d;%d\n", temp.username, temp.nGames, temp.nWins, temp.nLosses, temp.nDraws);
+
+        // Se existir algum utilizador com o mesmo username obtemos as estatísticas deste utilizador, e retornamos
+        if (strcmp(temp.username, userStats->username) == 0)
+        {
+            userStats->nGames = temp.nGames;
+            userStats->nWins = temp.nWins;
+            userStats->nLosses = temp.nLosses;
+            userStats->nDraws = temp.nDraws;
+
+            fclose(file);
+            return STATS_OBTAINED;
+        }
+    }
+    fclose(file);
+    return USER_NOT_FOUND;
+}
+
+int SaveUserStats(struct Stats userStats)
 {
     FILE* file;
 
@@ -611,7 +672,7 @@ int SaveUserStats(char* username, int stats[4])
         }
 
         // É guardado o novo utilizador logo no início do ficheiro e é fechado
-        fprintf(file, "%d;%s;%s;%s\n", username, stats[0], stats[1], stats[2], stats[3]);
+        fprintf(file, "%d;%s;%s;%s\n", userStats.username, userStats.nGames, userStats.nWins, userStats.nLosses, userStats.nDraws);
         fclose(file);
 
         return SUCCESS_SAVING;
@@ -634,30 +695,42 @@ int SaveUserStats(char* username, int stats[4])
         // Após contar o número de utilizadores volta ao início do ficheiro
         fseek(file, 0, SEEK_SET);
 
-        // Array temporário para guardar os dados de um utilizador
-        char tempUsername[20];
-
-        // TODO: Get username from single line and check if the username matches. If it does save the number of line.
-        //       Load the users into memory, and change the stats content using the number of line
-
-        for (int i = 0; i < numUsers; i++)
-        {
-
-        }
-
-
-        // Se todas as verificações passarem, fechamos o ficheiro, abrimos de novo em modo 'append' e adicionamos o novo utilizador ao ficheiro
-        fclose(file);
-
-        // Se o ficheiro não existir é criado um novo e aberto
-        if ((file = fopen("users.txt", "a")) == NULL)
+        // Alocar memória para um array de uma estrutura de dados para cada utilizador
+        struct Stats *usersData;
+        if ((usersData = (struct Stats*)malloc(numUsers * sizeof(struct Stats))) == NULL)
         {
             return ERROR_SAVING;
         }
 
-        // É guardado o novo utilizador no ficheiro e é fechado o ficheiro
-        fprintf(file, "%s;%s;%s\n", data[2], data[1], data[0]);
+        for (int i = 0; i < numUsers; i++)
+        {
+            fscanf(file, "%s;%d;%d;%d;%d\n", usersData[i].username, usersData[i].nGames, usersData[i].nWins, usersData[i].nLosses, usersData[i].nDraws);
+
+            // Verificação se algum utilizador no ficheiro tem o mesmo username que o usado para registar
+            if (strcmp(usersData[i].username, userStats.username) == 0)
+            {
+                usersData[i].nGames = userStats.nGames;
+                usersData[i].nWins = userStats.nWins;
+                usersData[i].nLosses = userStats.nLosses;
+                usersData[i].nDraws = userStats.nDraws;
+            }
+        }
+
+        // Após todos os utilizadores estarem em memória, são guardados no ficheiro
+        if ((file = fopen("stats.txt", "w")) == NULL)
+        {
+            free(usersData);
+            return ERROR_SAVING;
+        }
+
+        for (int i = 0; i < numUsers; i++)
+        {
+            fprintf(file, "%s;%d;%d;%d;%d\n", usersData[i].username, usersData[i].nGames, usersData[i].nWins, usersData[i].nLosses, usersData[i].nDraws);
+        }
+
+        // Após todas as operações estarem feitas, fechamos o ficheiro e desalocamos a memória
         fclose(file);
+        free(usersData);
 
         return SUCCESS_SAVING;
     }
