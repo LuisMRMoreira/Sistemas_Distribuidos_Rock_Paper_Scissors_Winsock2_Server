@@ -79,7 +79,7 @@ HANDLE authMutex;
 HANDLE statsMutex;
 
 int interpreter(enum Authentication value, char* recvbuf);
-bool startAuthentication(SOCKET current_client, char* username[20]);
+bool startAuthentication(SOCKET current_client, char* username);
 int RegisterUserDataOnFile(char (*data)[DEFAULT_BUFLEN]);
 int AuthenticateUserDataOnFile(char (*data)[DEFAULT_BUFLEN]);
 int GetUserStats(struct Stats* userStats);
@@ -157,7 +157,7 @@ int interpreter(enum Authentication value, char* recvbuf) {
 
 
 // UPDATE: 
-bool startAuthentication(SOCKET current_client, char* username[20]) {
+bool startAuthentication(SOCKET current_client, char* username) {
     char recvbuf[DEFAULT_BUFLEN]; // Buffer com a string recebida pelo servidor
     ZeroMemory(recvbuf, DEFAULT_BUFLEN);
     char sendbuf[DEFAULT_BUFLEN];
@@ -327,7 +327,7 @@ bool startAuthentication(SOCKET current_client, char* username[20]) {
                                 WSACleanup();
                                 return false;
                             }
-                            strcpy(username, fieldsEntries[2]);
+                            strcpy(username, fieldsEntries[1]);
                             return true;
                         case WRONG_PASSWORD:
                             strcpy_s(sendbuf, DEFAULT_BUFLEN, "The password for the user is wrong!");
@@ -497,10 +497,11 @@ int RegisterUserDataOnFile(char (*data)[DEFAULT_BUFLEN])
 
         // Usadas para dividir as linhas do ficheiro em campos (nome, email e password)
         char* strings;
-        int contador = 0;
+        int contador;
   
         for (int i = 0; i < numUsers; i++)
         {
+            contador = 0;
             // Obtém os dados de única linha
             fgets(buffer, sizeof(buffer), file);
 
@@ -575,9 +576,10 @@ int AuthenticateUserDataOnFile(char(*data)[DEFAULT_BUFLEN])
 
     // Usadas para dividir as linhas do ficheiro em campos (nome, email e password)
     char* strings;
-    int contador = 0;
+    int contador;
     for (int i = 0; i < numUsers; i++)
     {
+        contador = 0;
         // Obtém os dados de única linha
         fgets(buffer, sizeof(buffer), file);
 
@@ -642,7 +644,7 @@ int GetUserStats(struct Stats* userStats)
     struct Stats temp = { .username = "", .nGames = 0, .nWins = 0, .nLosses = 0, .nDraws = 0 };
     for (int i = 0; i < numUsers; i++)
     { 
-        fscanf(file, "%s;%d;%d;%d;%d\n", temp.username, temp.nGames, temp.nWins, temp.nLosses, temp.nDraws);
+        fscanf(file, "%[a-zA-z];%d;%d;%d;%d\n", temp.username, &temp.nGames, &temp.nWins, &temp.nLosses, &temp.nDraws);
 
         // Se existir algum utilizador com o mesmo username obtemos as estatísticas deste utilizador, e retornamos
         if (strcmp(temp.username, userStats->username) == 0)
@@ -694,6 +696,20 @@ int SaveUserStats(struct Stats userStats)
             }
         }
 
+        // Se existir o ficheiro, mas não existir nenhum utilizador registado guarda logo na primeira linha
+        if (numUsers == 0)
+        {
+            fclose(file);
+
+            if ((file = fopen("stats.txt", "w")) == NULL)
+            {
+                return ERROR_SAVING;
+            }
+
+            fprintf(file, "%s;%d;%d;%d;%d\n", userStats.username, userStats.nGames, userStats.nWins, userStats.nLosses, userStats.nDraws);
+            fclose(file);
+            return SUCCESS_SAVING;
+        }
         // Após contar o número de utilizadores volta ao início do ficheiro
         fseek(file, 0, SEEK_SET);
 
@@ -704,9 +720,10 @@ int SaveUserStats(struct Stats userStats)
             return ERROR_SAVING;
         }
 
+        bool userExistsInFile = false;
         for (int i = 0; i < numUsers; i++)
         {
-            fscanf(file, "%s;%d;%d;%d;%d\n", usersData[i].username, usersData[i].nGames, usersData[i].nWins, usersData[i].nLosses, usersData[i].nDraws);
+            fscanf(file, "%[a-zA-z];%d;%d;%d;%d\n", usersData[i].username, &usersData[i].nGames, &usersData[i].nWins,& usersData[i].nLosses, &usersData[i].nDraws);
 
             // Verificação se algum utilizador no ficheiro tem o mesmo username que o usado para registar
             if (strcmp(usersData[i].username, userStats.username) == 0)
@@ -715,8 +732,11 @@ int SaveUserStats(struct Stats userStats)
                 usersData[i].nWins = userStats.nWins;
                 usersData[i].nLosses = userStats.nLosses;
                 usersData[i].nDraws = userStats.nDraws;
+                userExistsInFile = true;
             }
         }
+
+        fclose(file);
 
         // Após todos os utilizadores estarem em memória, são guardados no ficheiro
         if ((file = fopen("stats.txt", "w")) == NULL)
@@ -728,6 +748,12 @@ int SaveUserStats(struct Stats userStats)
         for (int i = 0; i < numUsers; i++)
         {
             fprintf(file, "%s;%d;%d;%d;%d\n", usersData[i].username, usersData[i].nGames, usersData[i].nWins, usersData[i].nLosses, usersData[i].nDraws);
+        }
+
+        // No caso do utilizador autenticado não existir no ficheiro é adicionado no final
+        if (userExistsInFile == false)
+        {
+            fprintf(file, "%s;%d;%d;%d;%d\n", userStats.username, userStats.nGames, userStats.nWins, userStats.nLosses, userStats.nDraws);
         }
 
         // Após todas as operações estarem feitas, fechamos o ficheiro e desalocamos a memória
@@ -867,13 +893,14 @@ DWORD WINAPI client_thread(SOCKET params) {
         return 1;
     }
 
-    char username[20];
-    // UPDATE: Esta função vai tratar da autenticação do servidor. Caso não tenha conta, cria-a, caso contrário autentica-o.
-    startAuthentication(current_client, *username);
-
     struct Stats clientStats = {
-        .username = username
+        .username = ""
     };
+
+    // UPDATE: Esta função vai tratar da autenticação do servidor. Caso não tenha conta, cria-a, caso contrário autentica-o.
+    startAuthentication(current_client, clientStats.username);
+
+    
     ChangeStatsFileData(&clientStats, GET_USER_STATS);
 
     // Recebe informação até que a conexão entre o servidor e o cliente seja fechada, ou seja, enqaundo o cliente enviar informação para o servidor (iRecvResult > 0).
