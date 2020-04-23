@@ -48,20 +48,18 @@
 #define EMAIL_ALREADY_USED -1
 #define SUCCESS_SAVING 0
 #define SUCCESS_AUTHENTICATING 1
-#define STATS_OBTAINED;
-
-
-
+#define STATS_OBTAINED 2
 
 // Códigos usados para designar funções para guardar ou ler dados em ficheiros
 #define REGISTER_USER 0
 #define AUTHENTICATE_USER 1
 #define SAVE_USER_STATS 2
+#define GET_USER_STATS 3
 
 // Estrutura de dados utilizada para obter a informação do endereço e da porta que seram utilizados pelo servidor.
 struct addrinfo* result = NULL, * ptr = NULL, hints;
 
-// Estrutura que guarda os dados de utilizadores
+// Estrutura que guarda os dados de estatisticas de utilizadores
 struct Stats {
     char username[20];
     int nGames;
@@ -77,14 +75,17 @@ enum Authentication { isNotAuthenticated = -1, isAuthenticated = 1, isAuthentica
 enum AccountFields { username = 1, password = 2, email = 3 };
 
 // Definição do mutex usado para escrever em ficheiros
-HANDLE ghMutex;
+HANDLE authMutex;
+HANDLE statsMutex;
 
 int interpreter(enum Authentication value, char* recvbuf);
-bool startAuthentication(SOCKET current_client);
+bool startAuthentication(SOCKET current_client, char* username[20]);
 int RegisterUserDataOnFile(char (*data)[DEFAULT_BUFLEN]);
 int AuthenticateUserDataOnFile(char (*data)[DEFAULT_BUFLEN]);
-int SaveUserStats(char* username, int stats[4]);
-int ChangeFileData(char* data, int operation);
+int GetUserStats(struct Stats* userStats);
+int SaveUserStats(struct Stats userStats);
+int ChangeAuthFileData(char* data, int operation);
+int ChangeStatsFileData(struct Stats* userStats, int operation);
 DWORD WINAPI client_thread(SOCKET params);
 
 
@@ -156,7 +157,7 @@ int interpreter(enum Authentication value, char* recvbuf) {
 
 
 // UPDATE: 
-bool startAuthentication(SOCKET current_client) {
+bool startAuthentication(SOCKET current_client, char* username[20]) {
     char recvbuf[DEFAULT_BUFLEN]; // Buffer com a string recebida pelo servidor
     ZeroMemory(recvbuf, DEFAULT_BUFLEN);
     char sendbuf[DEFAULT_BUFLEN];
@@ -251,7 +252,7 @@ bool startAuthentication(SOCKET current_client) {
                     }
                     else // No caso do valor dos dois campos da password serem iguais, armazena-se os dados, limpa-se o ecra, faz-se o reset das variáveis e pede-se ao utilizador para se autenticar.
                     {
-                        int fileResult = ChangeFileData(*fieldsEntries, REGISTER_USER);
+                        int fileResult = ChangeAuthFileData(*fieldsEntries, REGISTER_USER);
 
                         switch (fileResult)
                         {
@@ -313,7 +314,7 @@ bool startAuthentication(SOCKET current_client) {
                     strcpy_s(fieldsEntries[fields], DEFAULT_BUFLEN, recvbuf);
 
 
-                    int fileResult = ChangeFileData(*fieldsEntries, AUTHENTICATE_USER);
+                    int fileResult = ChangeAuthFileData(*fieldsEntries, AUTHENTICATE_USER);
                     switch (fileResult)
                     {
                         // No caso dos dados introduzidos estarem de acordo com os que estão em ficheiro
@@ -326,6 +327,7 @@ bool startAuthentication(SOCKET current_client) {
                                 WSACleanup();
                                 return false;
                             }
+                            strcpy(username, fieldsEntries[2]);
                             return true;
                         case WRONG_PASSWORD:
                             strcpy_s(sendbuf, DEFAULT_BUFLEN, "The password for the user is wrong!");
@@ -637,9 +639,9 @@ int GetUserStats(struct Stats* userStats)
     // Após contar o número de utilizadores volta ao início do ficheiro
     fseek(file, 0, SEEK_SET);
 
+    struct Stats temp = { .username = "", .nGames = 0, .nWins = 0, .nLosses = 0, .nDraws = 0 };
     for (int i = 0; i < numUsers; i++)
-    {
-        struct Stats temp;
+    { 
         fscanf(file, "%s;%d;%d;%d;%d\n", temp.username, temp.nGames, temp.nWins, temp.nLosses, temp.nDraws);
 
         // Se existir algum utilizador com o mesmo username obtemos as estatísticas deste utilizador, e retornamos
@@ -672,7 +674,7 @@ int SaveUserStats(struct Stats userStats)
         }
 
         // É guardado o novo utilizador logo no início do ficheiro e é fechado
-        fprintf(file, "%d;%s;%s;%s\n", userStats.username, userStats.nGames, userStats.nWins, userStats.nLosses, userStats.nDraws);
+        fprintf(file, "%d;%s;%s;%s;%s\n", userStats.username, userStats.nGames, userStats.nWins, userStats.nLosses, userStats.nDraws);
         fclose(file);
 
         return SUCCESS_SAVING;
@@ -736,11 +738,11 @@ int SaveUserStats(struct Stats userStats)
     }
 }
 
-int ChangeFileData(char* data, int operation)
+int ChangeAuthFileData(char* data, int operation)
 {
     // Pedido do thread para usar o mutex
     DWORD dwWaitResult;
-    dwWaitResult = WaitForSingleObject(ghMutex, INFINITE);
+    dwWaitResult = WaitForSingleObject(authMutex, INFINITE);
 
     int fileResult;
     switch (dwWaitResult)
@@ -757,8 +759,6 @@ int ChangeFileData(char* data, int operation)
                     case AUTHENTICATE_USER:
                         fileResult = AuthenticateUserDataOnFile(data);
                         break;
-                    case SAVE_USER_STATS:
-                        break;
                     default:
                         fileResult = ERROR_SAVING;
                 }
@@ -766,7 +766,7 @@ int ChangeFileData(char* data, int operation)
             __finally 
             {
                 // O thread para de usar o mutex, deixando-o disponível para outro thread. 
-                if (!ReleaseMutex(ghMutex))
+                if (!ReleaseMutex(authMutex))
                 {
                     return ERROR_RELEASING_MUTEX;
                 }
@@ -779,7 +779,56 @@ int ChangeFileData(char* data, int operation)
         // O thread está a usar o mutex, mas o mutex encontra-se abandonado (ainda está a ser usado por um thread que já não existe)
         case WAIT_ABANDONED:
             return ERROR_SAVING;
+        default:
+            return ERROR_SAVING;
     }
+}
+
+int ChangeStatsFileData(struct Stats* userStats, int operation)
+{
+    // Pedido do thread para usar o mutex
+    DWORD dwWaitResult;
+    dwWaitResult = WaitForSingleObject(statsMutex, INFINITE);
+
+    int fileResult;
+    switch (dwWaitResult)
+    {
+        // O thread está a usar o mutex
+        case WAIT_OBJECT_0:
+            __try
+            {
+                switch (operation)
+                {
+                case SAVE_USER_STATS:
+                    fileResult = SaveUserStats(*userStats);
+                    break;
+                case GET_USER_STATS:
+                    fileResult = GetUserStats(userStats);
+                    break;
+                default:
+                    fileResult = ERROR_SAVING;
+                }
+            }
+            __finally
+            {
+                // O thread para de usar o mutex, deixando-o disponível para outro thread. 
+                if (!ReleaseMutex(statsMutex))
+                {
+                    return ERROR_RELEASING_MUTEX;
+                }
+
+                // Retorna o resultado das funções em cima
+                return fileResult;
+            }
+            break;
+
+            // O thread está a usar o mutex, mas o mutex encontra-se abandonado (ainda está a ser usado por um thread que já não existe)
+        case WAIT_ABANDONED:
+            return ERROR_SAVING;
+        default:
+            return ERROR_SAVING;
+    }
+   
 }
 
 
@@ -801,9 +850,7 @@ DWORD WINAPI client_thread(SOCKET params) {
     
     // Variáveis utilizadas para a lógica do comando "STATS"
     int randomnumber = 0;
-    int gamesPlayed = 0, gamesWon = 0, gamesDraw = 0, gamesLost = 0;
-    char gamesPlayedString[19], gamesWonString[16], gamesDrawString[17], gamesLostString[17];
-    char auxString[5];
+    char gamesPlayedString[25], gamesWonString[22], gamesDrawString[23], gamesLostString[23];
     
     bool skipCommand; // Variável que permite ignorar possíveis "lixos" que venham no buffer recebido.
 
@@ -820,42 +867,22 @@ DWORD WINAPI client_thread(SOCKET params) {
         return 1;
     }
 
+    char username[20];
     // UPDATE: Esta função vai tratar da autenticação do servidor. Caso não tenha conta, cria-a, caso contrário autentica-o.
-    startAuthentication(current_client);
+    startAuthentication(current_client, *username);
 
+    struct Stats clientStats = {
+        .username = username
+    };
+    ChangeStatsFileData(&clientStats, GET_USER_STATS);
 
     // Recebe informação até que a conexão entre o servidor e o cliente seja fechada, ou seja, enqaundo o cliente enviar informação para o servidor (iRecvResult > 0).
     do {
-
-        // De forma a prevenir possíveis "overflows" das strings que representam as estatisticas, os contadores são reinicializados a cada 1000 jogos em cada sessão.
-        if (gamesPlayed > 999)
-        {
-            gamesPlayed = 0;
-            gamesWon = 0;
-            gamesDraw = 0;
-            gamesLost = 0;
-        }
-
         // Conversão dos valores para strings e prepará-las para serem enviadas, no caso do cliente querer ver as suas estatísticas.
-        sprintf(auxString, "%d", gamesPlayed);
-        strcat(auxString, "\n");
-        strcpy(gamesPlayedString, "Games played: ");
-        strcat(gamesPlayedString, auxString);
-
-        sprintf(auxString, "%d", gamesWon);
-        strcat(auxString, "\n");
-        strcpy(gamesWonString, "Games won: ");
-        strcat(gamesWonString, auxString);
-
-        sprintf(auxString, "%d", gamesDraw);
-        strcat(auxString, "\n");
-        strcpy(gamesDrawString, "Games draw: ");
-        strcat(gamesDrawString, auxString);
-
-        sprintf(auxString, "%d", gamesLost);
-        strcat(auxString, "\n");
-        strcpy(gamesLostString, "Games lost: ");
-        strcat(gamesLostString, auxString);
+        sprintf(gamesPlayedString, "Games played: %d\n", clientStats.nGames);
+        sprintf(gamesWonString, "Games won: %d\n", clientStats.nWins);
+        sprintf(gamesLostString, "Games lost: %d\n", clientStats.nLosses);
+        sprintf(gamesDrawString, "Draws: %d\n", clientStats.nDraws);
         
         // Faz o reset do conteudo das strings para remover possíveis caracteres indesejados.
         ZeroMemory(recvbuf, DEFAULT_BUFLEN);
@@ -881,8 +908,6 @@ DWORD WINAPI client_thread(SOCKET params) {
 
                 // Utilizar a função criada em cima para interpretar a mensagem recebida.
                 receivedMsgValue = interpreter(1, recvbuf);
-
-
 
 
                 // De acordo com o valor obtido na função "playOrRestart(recvbuf);", será criada/ escolhida uma mensagem que posteriormente será enviada como mensagem de resposta pelo servidor, ao cliente.
@@ -912,64 +937,63 @@ DWORD WINAPI client_thread(SOCKET params) {
                     strcat_s(sendbuf, DEFAULT_BUFLEN, gamesDrawString);
                     break;
                 case ROCK_VALUE:
-                    gamesPlayed++; // No caso da mensagem recebida ser de uma jogada, o número de jogos é incrementado.
+                    clientStats.nGames++; // No caso da mensagem recebida ser de uma jogada, o número de jogos é incrementado.
                     if (randomnumber == ROCK_VALUE) // De acordo com o resultado da jogada, os contadores de resultados é interpretado.
                     {
                         strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY ROCK <CR>\n300 RESULT Draw!\n");
-                        gamesDraw++;
+                        clientStats.nDraws++;
                     }
                     else if (randomnumber == PAPER_VALUE)
                     {
                         strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY PAPER <CR>\n300 RESULT Server Wins!\n");
-                        gamesLost++;
+                        clientStats.nLosses++;
                     }
                     else if (randomnumber == SCISSORS_VALUE)
                     {
                         strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY ROCK <CR> SERVERPLAY SCISSORS <CR>\n300 RESULT Client Wins!\n");
-                        gamesWon++;
+                        clientStats.nWins++;
                     }
+                    ChangeStatsFileData(&clientStats, SAVE_USER_STATS);
                     break;
                 case PAPER_VALUE:
-                    gamesPlayed++;
+                    clientStats.nGames++;
                     if (randomnumber == ROCK_VALUE)
                     {
                         strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY PAPER <CR> SERVERPLAY ROCK <CR>\n300 Client Wins!\n");
-                        gamesWon++;
+                        clientStats.nWins++;
                     }
                     else if (randomnumber == PAPER_VALUE)
                     {
                         strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY PAPER <CR> SERVERPLAY PAPER <CR>\n300 RESULT Draw!\n");
-                        gamesDraw++;
+                        clientStats.nDraws++;
                     }
                     else if (randomnumber == SCISSORS_VALUE)
                     {
                         strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY PAPER <CR> SERVERPLAY SCISSORS <CR>\n300 RESULT Server Wins!\n");
-                        gamesLost++;
+                        clientStats.nLosses++;
                     }
+                    ChangeStatsFileData(&clientStats, SAVE_USER_STATS);
                     break;
                 case SCISSORS_VALUE:
-                    gamesPlayed++;
+                    clientStats.nGames++;
                     if (randomnumber == ROCK_VALUE)
                     {
                         strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY SCISSORS <CR> SERVERPLAY ROCK <CR>\n300 RESULT Server Wins!\n");
-                        gamesLost++;
+                        clientStats.nLosses++;
                     }
                     else if (randomnumber == PAPER_VALUE)
                     {
                         strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY SCISSORS <CR> SERVERPLAY PAPER <CR>\n300 RESULT Client Wins!\n");
-                        gamesWon++;
+                        clientStats.nWins++;
                     }
                     else if (randomnumber == SCISSORS_VALUE)
                     {
                         strcpy_s(sendbuf, DEFAULT_BUFLEN, "200 CLIENTPLAY SCISSORS <CR> SERVERPLAY SCISSORS <CR>\n300 RESULT Draw!\n");
-                        gamesDraw++;
+                        clientStats.nDraws++;
                     }
+                    ChangeStatsFileData(&clientStats, SAVE_USER_STATS);
                     break;
-                case RESTART:  // Comando de reinicialização dos contadores das estatisticas.
-                    gamesPlayed = 0;
-                    gamesWon = 0;
-                    gamesLost = 0;
-                    gamesDraw = 0;
+                case RESTART: 
                     strcpy_s(sendbuf, DEFAULT_BUFLEN, "100 OK\n");
                     break;
                 case END:
@@ -1045,9 +1069,16 @@ int __cdecl main(int argc, char** argv) {
         return 1;
     }
 
-    // Criação do mutex sem dono (não está associado a nenhum thread) e verificação de erros
-    ghMutex = CreateMutex(NULL, FALSE, NULL);
-    if (ghMutex == NULL)
+    // Criação de mutex sem dono (não está associado a nenhum thread) e verificação de erros
+    authMutex = CreateMutex(NULL, FALSE, NULL);
+    if (authMutex == NULL)
+    {
+        printf("CreateMutex error: %d\n", GetLastError());
+        return 1;
+    }
+
+    statsMutex = CreateMutex(NULL, FALSE, NULL);
+    if (statsMutex == NULL)
     {
         printf("CreateMutex error: %d\n", GetLastError());
         return 1;
