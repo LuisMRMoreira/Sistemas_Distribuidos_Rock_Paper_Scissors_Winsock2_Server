@@ -92,6 +92,7 @@ DWORD WINAPI client_thread(SOCKET params);
 // Função que recebe como parametro a string enviada pelo cliente, interpreta-a e retorna um valor que servirá posteriormente para se contruir a mensagem de resposta do servidor para o cliente.
 // Todos os possíveis valores que podem ser retornados desta função, estão indicados no bloco de "#define" acima.
 // UPDATE: Nesta nova versão foi adicionado aos parametros, um enum que informa o interpretador, do estado de autenticação. Esta função foi usada para permitir a funcionalidade do utilizador reverter o preenchimento de um ou vários campo durante a autenticação ou criação de conta.
+//         Também foi adicionado um parametro toUpperCase, para não transformar passwords em uppercase.
 int interpreter(enum Authentication value, char* recvbuf) {
 
     printf("%d: Command Received -> ", GetCurrentThreadId());
@@ -112,6 +113,7 @@ int interpreter(enum Authentication value, char* recvbuf) {
     if (arguments != NULL)
         for (int i = 0; i < strlen(arguments); i++)
             arguments[i] = toupper(arguments[i]);
+    
 
 
     // UPDATE: No caso do jogador ainda não estar autenticado.
@@ -191,6 +193,8 @@ bool startAuthentication(SOCKET current_client, char* username) {
         return false;
     }
 
+    // Variável usada para informar a função interpreter se deve transformar os chars enviados pelo cliente em upper case. Usado para prevenir que passwords sejam transformadas
+    // em upper case
     do
     {
         // receber buffer do cliente.
@@ -198,6 +202,14 @@ bool startAuthentication(SOCKET current_client, char* username) {
 
         // De acordo com o que o cliente envia para o servidor, a função interpreter interpreta esse buffer e retorna um resultado. Na primeira iteração, o primeiro parametro que é passado para esta função será a indicação de que o utilizador não está autenticado para que seja facil processar a informação recebida de acordo com o estado em que a sessão está.
         int interpretedResult =  interpreter(authentication, recvbuf);
+
+        // Se o comando recebido for um username ou email, transforma em upper case. Se for password, não transforma.
+        if (fields > 1)
+        {
+            if (recvbuf != NULL)
+                for (int i = 0; i < strlen(recvbuf); i++)
+                    recvbuf[i] = toupper(recvbuf[i]);
+        }
 
         // O código recebido da interpretação é tratado neste switch. Trata os casos do utilizador:
             // Já tem conta e por isso tem a intenção de se autenticar (AUTHENTICATION_AUTHENTICATE, colocou "Y" na primeira pergunta)
@@ -305,7 +317,7 @@ bool startAuthentication(SOCKET current_client, char* username) {
                             WSACleanup();
                             return false;
                         }
-                        iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // Importante: Limpar lixo que está no buffer.
+                        //iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // Importante: Limpar lixo que está no buffer.
                         continue; // Voltar ao inicio do while sem que o resto do código seja executado.
                     }
                 }
@@ -934,7 +946,7 @@ DWORD WINAPI client_thread(SOCKET params) {
                 randomnumber = rand() % 3;
 
                 // Utilizar a função criada em cima para interpretar a mensagem recebida.
-                receivedMsgValue = interpreter(1, recvbuf);
+                receivedMsgValue = interpreter(1, recvbuf, TRUE);
 
 
                 // De acordo com o valor obtido na função "playOrRestart(recvbuf);", será criada/ escolhida uma mensagem que posteriormente será enviada como mensagem de resposta pelo servidor, ao cliente.
