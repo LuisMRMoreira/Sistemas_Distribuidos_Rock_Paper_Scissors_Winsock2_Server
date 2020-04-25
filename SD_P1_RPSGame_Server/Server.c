@@ -92,7 +92,6 @@ DWORD WINAPI client_thread(SOCKET params);
 // Função que recebe como parametro a string enviada pelo cliente, interpreta-a e retorna um valor que servirá posteriormente para se contruir a mensagem de resposta do servidor para o cliente.
 // Todos os possíveis valores que podem ser retornados desta função, estão indicados no bloco de "#define" acima.
 // UPDATE: Nesta nova versão foi adicionado aos parametros, um enum que informa o interpretador, do estado de autenticação. Esta função foi usada para permitir a funcionalidade do utilizador reverter o preenchimento de um ou vários campo durante a autenticação ou criação de conta.
-//         Também foi adicionado um parametro toUpperCase, para não transformar passwords em uppercase.
 int interpreter(enum Authentication value, char* recvbuf) {
 
     printf("%d: Command Received -> ", GetCurrentThreadId());
@@ -203,7 +202,7 @@ bool startAuthentication(SOCKET current_client, char* username) {
         int interpretedResult =  interpreter(authentication, recvbuf);
 
         // Se o comando recebido for um username ou email, transforma em upper case. Se for password, não transforma.
-        if (fields > 1)
+        if (((fields > 1) && (authentication == isCreatingAccount)) || ((fields > 0) && (authentication == isAuthenticating)) || (authentication == isAuthenticated))
         {
             if (recvbuf != NULL)
                 for (int i = 0; i < strlen(recvbuf); i++)
@@ -302,7 +301,7 @@ bool startAuthentication(SOCKET current_client, char* username) {
                             case SUCCESS_SAVING:
                                 strcpy_s(sendbuf, DEFAULT_BUFLEN, "The register process was successfull\n\n");
                                 strcat_s(sendbuf, DEFAULT_BUFLEN, "Authentication:\nUsername: ");
-                                printf("A new user has registered: %s", fieldsEntries[2]);
+                                printf("A new user has registered: %s\n", fieldsEntries[2]);
                                 ZeroMemory(recvbuf, DEFAULT_BUFLEN);
                                 break;
                         }
@@ -375,9 +374,6 @@ bool startAuthentication(SOCKET current_client, char* username) {
             }
             else { // Caso contrário, este array é preenchido com os valores dos campos de preenchiento para a criação de uma conta. No final este array vai ser utilizado para se escrever em ficheiro os dados das contas.
             if (recvbuf != NULL)
-                for (int i = 0; i < strlen(recvbuf); i++)
-                    recvbuf[i] = toupper(recvbuf[i]);
-
                 if (authentication == isAuthenticating)
                     strcpy_s(fieldsEntries[fields], DEFAULT_BUFLEN, recvbuf); // Esta array é para o caso da autenticação e é preenchido na ordem iversa.
                 else
