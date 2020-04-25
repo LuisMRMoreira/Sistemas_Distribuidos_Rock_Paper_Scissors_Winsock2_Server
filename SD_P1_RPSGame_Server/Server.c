@@ -144,8 +144,6 @@ int interpreter(enum Authentication value, char* recvbuf) {
                 return SCISSORS_VALUE;
             else
                 return INVALID_ARGUMENT;
-        else if (strcmp(firstword, "RESTART") == 0)
-            return RESTART;
         else if (strcmp(firstword, "END") == 0)
             return END;
         else if (strcmp(firstword, "STATS") == 0)
@@ -197,6 +195,7 @@ bool startAuthentication(SOCKET current_client, char* username) {
     // em upper case
     do
     {
+
         // receber buffer do cliente.
         iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0);
 
@@ -247,7 +246,7 @@ bool startAuthentication(SOCKET current_client, char* username) {
                 if (authentication == isCreatingAccount)
                 {
                     // Comparar se a password inserida é igual á password de confirmação
-                    if (!strcmp(fieldsEntries[MAX_NUM_CREATE_ACCOUNT_FIELDS - 2 - 1], recvbuf)) // No caso dos valores não serem iguais, envia-se uma mensagem de erro e volta-se a pedir para introduzir a password de novo.
+                    if (strcmp(fieldsEntries[0], recvbuf) != 0) // No caso dos valores não serem iguais, envia-se uma mensagem de erro e volta-se a pedir para introduzir a password de novo.
                     {
                         strcpy_s(sendbuf, DEFAULT_BUFLEN, "Passwords doen't match! Try again\nPassword: ");
                         iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
@@ -257,9 +256,10 @@ bool startAuthentication(SOCKET current_client, char* username) {
                             WSACleanup();
                             return false;
                         }
-                        ZeroMemory(fieldsEntries[MAX_NUM_CREATE_ACCOUNT_FIELDS - 2 - 1], DEFAULT_BUFLEN); // Uma vez que vamos voltar a pedir ao utilizador para inserir os dados da password, temos de os limpar do array.
-                        fields += 2;
-                        iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // Importante: Limpar lixo que está no buffer.
+                        ZeroMemory(fieldsEntries[0], DEFAULT_BUFLEN); // Uma vez que vamos voltar a pedir ao utilizador para inserir os dados da password, temos de os limpar do array.
+                        fields++;
+                        ZeroMemory(recvbuf, DEFAULT_BUFLEN);
+                        //iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // Importante: Limpar lixo que está no buffer.
                         continue; // Voltar ao inicio do while sem que o resto do código seja executado.
                     }
                     else // No caso do valor dos dois campos da password serem iguais, armazena-se os dados, limpa-se o ecra, faz-se o reset das variáveis e pede-se ao utilizador para se autenticar.
@@ -303,6 +303,7 @@ bool startAuthentication(SOCKET current_client, char* username) {
                                 strcpy_s(sendbuf, DEFAULT_BUFLEN, "The register process was successfull\n\n");
                                 strcat_s(sendbuf, DEFAULT_BUFLEN, "Authentication:\nUsername: ");
                                 printf("A new user has registered: %s", fieldsEntries[2]);
+                                ZeroMemory(recvbuf, DEFAULT_BUFLEN);
                                 break;
                         }
                     
@@ -331,7 +332,7 @@ bool startAuthentication(SOCKET current_client, char* username) {
                     {
                         // No caso dos dados introduzidos estarem de acordo com os que estão em ficheiro
                         case SUCCESS_AUTHENTICATING:
-                            strcpy_s(sendbuf, DEFAULT_BUFLEN, "Authenticated with success!");
+                            strcpy_s(sendbuf, DEFAULT_BUFLEN, "Authenticated with success!\nNow you can play with the server. Write the command \"HELP\" to learn the comands!\n");
                             iSendResult = send(current_client, sendbuf, strlen(sendbuf), 0);
                             if (iSendResult == SOCKET_ERROR) {
                                 printf("%d: Send failed: %d\n", GetCurrentThreadId(), WSAGetLastError());
@@ -367,16 +368,21 @@ bool startAuthentication(SOCKET current_client, char* username) {
                         WSACleanup();
                         return false;
                     }
-                    iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // Importante: Limpar lixo que está no buffer.
+                    ZeroMemory(recvbuf, DEFAULT_BUFLEN);
+                    //iRecvResult = recv(current_client, recvbuf, DEFAULT_BUFLEN, 0); // Importante: Limpar lixo que está no buffer.
                     continue;             
                 }
             }
-            else // Caso contrário, este array é preenchido com os valores dos campos de preenchiento para a criação de uma conta. No final este array vai ser utilizado para se escrever em ficheiro os dados das contas.
+            else { // Caso contrário, este array é preenchido com os valores dos campos de preenchiento para a criação de uma conta. No final este array vai ser utilizado para se escrever em ficheiro os dados das contas.
+            if (recvbuf != NULL)
+                for (int i = 0; i < strlen(recvbuf); i++)
+                    recvbuf[i] = toupper(recvbuf[i]);
+
                 if (authentication == isAuthenticating)
                     strcpy_s(fieldsEntries[fields], DEFAULT_BUFLEN, recvbuf); // Esta array é para o caso da autenticação e é preenchido na ordem iversa.
-                else 
-                    strcpy_s(fieldsEntries[fields-1], DEFAULT_BUFLEN, recvbuf); // Esta array é para o caso da criação de conta e é preenchido na ordem iversa.
-
+                else
+                    strcpy_s(fieldsEntries[fields - 1], DEFAULT_BUFLEN, recvbuf); // Esta array é para o caso da criação de conta e é preenchido na ordem iversa.
+            }
             
             break;
         case GARBAGE:
@@ -595,12 +601,16 @@ int AuthenticateUserDataOnFile(char(*data)[DEFAULT_BUFLEN])
         // Obtém os dados de única linha
         fgets(buffer, sizeof(buffer), file);
 
+        // Remover o último caracter que é um '\n'
+        buffer[strlen(buffer) - 1] = 0;
+
         // Divide os dados em campis (nome, email e password)
         strings = strtok(buffer, ";");
         while ((strings != NULL) && (contador < 3))
         {
             strcpy(dataUser[contador], strings);
             contador++;
+            strings = strtok(NULL, ";");
         }
 
         // Verificação se algum utilizador no ficheiro tem o mesmo username nos registos
@@ -611,7 +621,7 @@ int AuthenticateUserDataOnFile(char(*data)[DEFAULT_BUFLEN])
             fclose(file);
 
             // Comparam-se as passwords
-            if (strcmp(dataUser[1], data[1]) == 0)
+            if (strcmp(dataUser[2], data[0]) == 0)
             {
                 return SUCCESS_AUTHENTICATING;
             }
@@ -953,7 +963,7 @@ DWORD WINAPI client_thread(SOCKET params) {
                 switch (receivedMsgValue)
                 {
                 case INVALID_COMMAND:
-                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "Invalid command. Valid commands <PLAY <ROCK;PAPER;SCISSORS>;RESTART;END;HELP;STATS> Try again.\n");
+                    strcpy_s(sendbuf, DEFAULT_BUFLEN, "Invalid command. Valid commands <PLAY <ROCK;PAPER;SCISSORS>;END;HELP;STATS> Try again.\n");
                     break;
                 case INVALID_ARGUMENT:
                     strcpy_s(sendbuf, DEFAULT_BUFLEN, "Invalid argument to the 'PLAY' command. Valid arguments PLAY <ROCK;PAPER;SCISSORS>. Try again.\n");
@@ -966,7 +976,6 @@ DWORD WINAPI client_thread(SOCKET params) {
                     strcat_s(sendbuf, DEFAULT_BUFLEN, "PLAY SCISSORS - Play a game and choose scissors\n");
                     strcat_s(sendbuf, DEFAULT_BUFLEN, "PLAY PAPER - Play a game and choose paper\n");
                     strcat_s(sendbuf, DEFAULT_BUFLEN, "STATS - See your stats in the current session\n");
-                    strcat_s(sendbuf, DEFAULT_BUFLEN, "RESTART - Restart the connection\n");
                     strcat_s(sendbuf, DEFAULT_BUFLEN, "END - Close the connection\n");
                     break;
                 case STATS:
